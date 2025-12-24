@@ -10,6 +10,7 @@ import duckdb
 import pandas as pd
 
 from .logging_config import get_logger
+from .retry_utils import retry_with_exponential_backoff
 
 logger = get_logger()
 
@@ -79,28 +80,41 @@ def execute_duckdb_query(query: str, config: Any) -> pd.DataFrame:
     validate_sql_query(query)
 
     try:
-        # Use context manager for automatic resource cleanup
-        with duckdb.connect() as conn:
-            # Install and load Azure extension
-            conn.execute("INSTALL azure;")
-            conn.execute("LOAD azure;")
 
-            # SECURITY FIX: DuckDB doesn't support parameterized SET statements
-            # Use proper escaping instead (single quotes must be doubled)
-            escaped_conn_str = config.azure_storage.connection_string.replace("'", "''")
-            conn.execute(f"SET azure_storage_connection_string='{escaped_conn_str}';")
+        @retry_with_exponential_backoff(
+            max_attempts=2,
+            initial_wait=2.0,
+            exceptions=(duckdb.IOException,),
+        )
+        def execute_with_retry():
+            # Use context manager for automatic resource cleanup
+            with duckdb.connect() as conn:
+                # Install and load Azure extension
+                conn.execute("INSTALL azure;")
+                conn.execute("LOAD azure;")
 
-            logger.debug(f"Executing query: {query[:100]}...")
+                # SECURITY FIX: DuckDB doesn't support parameterized SET statements
+                # Use proper escaping instead (single quotes must be doubled)
+                escaped_conn_str = config.azure_storage.connection_string.replace(
+                    "'", "''"
+                )
+                conn.execute(
+                    f"SET azure_storage_connection_string='{escaped_conn_str}';"
+                )
 
-            # Execute the query
-            result_df = conn.execute(query).fetchdf()
+                logger.debug(f"Executing query: {query[:100]}...")
 
-            if result_df is None or result_df.empty:
-                logger.info("Query returned no results")
-                return pd.DataFrame({"message": ["No results returned"]})
+                # Execute the query
+                result_df = conn.execute(query).fetchdf()
 
-            logger.info(f"Query returned {len(result_df)} rows")
-            return result_df
+                if result_df is None or result_df.empty:
+                    logger.info("Query returned no results")
+                    return pd.DataFrame({"message": ["No results returned"]})
+
+                logger.info(f"Query returned {len(result_df)} rows")
+                return result_df
+
+        return execute_with_retry()
 
     except duckdb.CatalogException as e:
         error_msg = f"Catalog error: {str(e)}"

@@ -5,9 +5,10 @@ LLM chains for query analysis and SQL generation
 import json
 from typing import Any, Dict, List, Optional, Tuple
 
-from openai import AzureOpenAI
+from openai import APIError, AzureOpenAI, RateLimitError, Timeout
 
 from .logging_config import get_logger, log_llm_call, track_execution_time
+from .retry_utils import retry_with_exponential_backoff
 
 logger = get_logger()
 
@@ -104,8 +105,14 @@ You are an expert query analyzer. Analyze the user's question and provide struct
 """
 
     try:
-        with track_execution_time("Query Analysis LLM Call", logger) as timing:
-            response = llm_client.chat.completions.create(
+
+        @retry_with_exponential_backoff(
+            max_attempts=3,
+            initial_wait=2.0,
+            exceptions=(RateLimitError, APIError, Timeout),
+        )
+        def make_llm_call():
+            return llm_client.chat.completions.create(
                 model=deployment_name,
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
@@ -116,6 +123,9 @@ You are an expert query analyzer. Analyze the user's question and provide struct
                 temperature=0.0,
                 timeout=30,
             )
+
+        with track_execution_time("Query Analysis LLM Call", logger) as timing:
+            response = make_llm_call()
 
         # SECURITY FIX: Validate tool_calls exists before accessing
         if not response.choices or not response.choices[0].message.tool_calls:
@@ -257,14 +267,23 @@ Return valid JSON:
 """
 
     try:
-        with track_execution_time("SQL Generation LLM Call", logger) as timing:
-            response = llm_client.chat.completions.create(
+
+        @retry_with_exponential_backoff(
+            max_attempts=3,
+            initial_wait=2.0,
+            exceptions=(RateLimitError, APIError, Timeout),
+        )
+        def make_llm_call():
+            return llm_client.chat.completions.create(
                 model=deployment_name,
                 messages=[{"role": "user", "content": sql_prompt}],
                 temperature=0.0,
                 response_format={"type": "json_object"},
                 timeout=30,
             )
+
+        with track_execution_time("SQL Generation LLM Call", logger) as timing:
+            response = make_llm_call()
 
         result = json.loads(response.choices[0].message.content.strip())
 
@@ -376,14 +395,23 @@ You are an expert data analyst. Generate a comprehensive summary of query result
 """
 
     try:
-        with track_execution_time("Summary Generation LLM Call", logger) as timing:
-            response = llm_client.chat.completions.create(
+
+        @retry_with_exponential_backoff(
+            max_attempts=3,
+            initial_wait=2.0,
+            exceptions=(RateLimitError, APIError, Timeout),
+        )
+        def make_llm_call():
+            return llm_client.chat.completions.create(
                 model=deployment_name,
                 messages=[{"role": "user", "content": summary_prompt}],
                 temperature=0.3,
                 response_format={"type": "json_object"},
                 timeout=60,
             )
+
+        with track_execution_time("Summary Generation LLM Call", logger) as timing:
+            response = make_llm_call()
 
         result = json.loads(response.choices[0].message.content.strip())
 

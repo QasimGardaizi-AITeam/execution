@@ -7,7 +7,12 @@ import time
 from typing import Any, Dict
 
 from .graph import create_query_processing_graph
+from .logging_config import get_logger
+from .monitoring import MetricsCollector
 from .state import GraphState
+from .validation import ValidationError, sanitize_user_question, validate_config_object
+
+logger = get_logger()
 
 
 def process_query(
@@ -32,8 +37,32 @@ def process_query(
     """
     start_time = time.time()
 
+    # Validate input
+    try:
+        user_question = sanitize_user_question(user_question)
+        validate_config_object(config)
+        logger.info("Input validation passed")
+    except ValidationError as e:
+        error_msg = f"Validation failed: {str(e)}"
+        logger.error(error_msg)
+        return {
+            "original_question": user_question,
+            "total_questions": 0,
+            "independent_count": 0,
+            "dependent_count": 0,
+            "results": [],
+            "final_summary": None,
+            "total_duration": time.time() - start_time,
+            "status": "error",
+            "error": error_msg,
+            "messages": [error_msg],
+        }
+
     # Create graph
     graph = create_query_processing_graph()
+
+    # Initialize metrics collector
+    metrics_collector = MetricsCollector()
 
     # Initialize state
     initial_state = GraphState(
@@ -42,6 +71,7 @@ def process_query(
         global_catalog_dict=global_catalog_dict,
         catalog_schema=catalog_schema,
         enable_debug=enable_debug,
+        metrics_collector=metrics_collector,
         analyses=[],
         total_questions=0,
         independent_count=0,
@@ -65,6 +95,11 @@ def process_query(
         total_duration = time.time() - start_time
         final_state["total_duration"] = total_duration
 
+        # Finalize and log metrics
+        metrics_collector.finalize()
+        if enable_debug:
+            metrics_collector.log_summary()
+
         return {
             "original_question": user_question,
             "total_questions": final_state.get("total_questions", 0),
@@ -76,11 +111,12 @@ def process_query(
             "status": final_state.get("status", "unknown"),
             "error": final_state.get("error"),
             "messages": final_state.get("messages", []),
+            "metrics": metrics_collector.get_summary(),
         }
 
     except Exception as e:
         error_msg = f"Graph execution failed: {str(e)}"
-        print(f"[ERROR] {error_msg}")
+        logger.error(error_msg)
 
         return {
             "original_question": user_question,
@@ -121,7 +157,7 @@ def main():
                 global_catalog_dict = catalog_data
 
     except Exception as e:
-        print(f"Error loading catalog: {e}")
+        logger.error(f"Error loading catalog: {e}")
         return
 
     # Test queries
@@ -132,9 +168,9 @@ def main():
         # "For each region, which product category has the highest yearly sales (Q1+Q2+Q3+Q4)?",
     ]
     for query in test_queries:
-        print(f"\n{'='*80}")
-        print(f"PROCESSING: {query}")
-        print(f"{'='*80}")
+        logger.info("=" * 80)
+        logger.info(f"PROCESSING: {query}")
+        logger.info("=" * 80)
 
         result = process_query(
             user_question=query,
@@ -144,9 +180,9 @@ def main():
             enable_debug=True,
         )
 
-        print(f"\n{'='*80}")
-        print("FINAL RESULTS")
-        print(f"{'='*80}")
+        logger.info("=" * 80)
+        logger.info("FINAL RESULTS")
+        logger.info("=" * 80)
         print(json.dumps(result, indent=2, default=str))
 
 

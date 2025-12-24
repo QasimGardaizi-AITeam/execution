@@ -14,7 +14,7 @@ from .chains import (
     generate_final_summary_chain,
     generate_sql_chain,
 )
-from .enums import IntentType, QueryStatus
+from .enums import GraphStatus, IntentType, QueryStatus
 from .logging_config import get_logger, log_query_execution
 from .state import GraphState, QueryAnalysis, QueryResult
 from .tools import (
@@ -25,6 +25,7 @@ from .tools import (
     read_top_rows_duckdb,
     validate_state,
 )
+from .validation import ValidationError, validate_file_names
 
 logger = get_logger()
 
@@ -218,6 +219,23 @@ def _log_and_record_result(
             execution_duration=execution_duration,
             error=None,
         )
+
+    # Record metrics if collector available
+    metrics = state.get("metrics_collector")
+    if metrics:
+        row_count = (
+            result_df.shape[0] if result_df is not None and error_msg is None else None
+        )
+        status = "success" if error_msg is None else "error"
+        metrics.record_query_execution(
+            query_index=idx,
+            sub_question=analysis["sub_question"],
+            intent=analysis["intent"],
+            status=status,
+            execution_duration=execution_duration,
+            row_count=row_count,
+            error=error_msg,
+        )
         print(f"[SUCCESS] Executed in {execution_duration:.2f}s")
         print(f"[RESULTS] {result_df.shape[0]} rows x {result_df.shape[1]} cols")
 
@@ -234,15 +252,15 @@ def validate_input_node(state: GraphState) -> GraphState:
     """
     Validate input state and initialize fields.
     """
-    print("\n" + "=" * 80)
-    print("NODE: Validate Input")
-    print("=" * 80)
+    logger.info("=" * 80)
+    logger.info("NODE: Validate Input")
+    logger.info("=" * 80)
 
     # Validate required fields
     is_valid, error_msg = validate_state(state)
     if not is_valid:
         state["error"] = error_msg
-        state["status"] = "error"
+        state["status"] = GraphStatus.ERROR.value
         state["messages"] = [f"[ERROR] Validation failed: {error_msg}"]
         return state
 
@@ -257,7 +275,7 @@ def validate_input_node(state: GraphState) -> GraphState:
     state.setdefault("final_summary", None)
 
     state["messages"].append("[SUCCESS] Input validation passed")
-    print("[SUCCESS] Input validated")
+    logger.info("[SUCCESS] Input validated")
 
     return state
 
@@ -266,9 +284,9 @@ def analyze_query_node(state: GraphState) -> GraphState:
     """
     Analyze user query and decompose into sub-questions.
     """
-    print("\n" + "=" * 80)
-    print("NODE: Analyze Query")
-    print("=" * 80)
+    logger.info("=" * 80)
+    logger.info("NODE: Analyze Query")
+    logger.info("=" * 80)
 
     try:
         llm_client = AzureOpenAI(
@@ -296,6 +314,15 @@ def analyze_query_node(state: GraphState) -> GraphState:
             for item in analyses_list
         ]
 
+        # Validate file names
+        for idx, analysis in enumerate(state["analyses"]):
+            try:
+                analysis["required_files"] = validate_file_names(
+                    analysis["required_files"], state["global_catalog_dict"]
+                )
+            except ValidationError as e:
+                logger.warning(f"Q{idx + 1} file validation failed: {e}")
+
         state["total_questions"] = len(state["analyses"])
         state["independent_count"] = sum(
             1 for a in state["analyses"] if a["depends_on_index"] == -1
@@ -308,27 +335,27 @@ def analyze_query_node(state: GraphState) -> GraphState:
         # Log analysis
         msg = f"[SUCCESS] Analyzed query into {state['total_questions']} sub-questions"
         state["messages"].append(msg)
-        print(msg)
+        logger.info(msg)
 
         if usage:
-            print(f"Tokens used: {usage['total_tokens']}")
+            logger.info(f"Tokens used: {usage['total_tokens']}")
 
         for idx, analysis in enumerate(state["analyses"]):
-            print(f"\n--- Question {idx + 1} ---")
-            print(f"Sub-Question: {analysis['sub_question']}")
-            print(f"Intent: {analysis['intent']}")
-            print(f"Files: {', '.join(analysis['required_files'])}")
+            logger.info(f"--- Question {idx + 1} ---")
+            logger.info(f"Sub-Question: {analysis['sub_question']}")
+            logger.info(f"Intent: {analysis['intent']}")
+            logger.info(f"Files: {', '.join(analysis['required_files'])}")
             if analysis["depends_on_index"] >= 0:
-                print(f"⚠️  Depends on Q{analysis['depends_on_index'] + 1}")
+                logger.info(f"⚠️  Depends on Q{analysis['depends_on_index'] + 1}")
 
         return state
 
     except Exception as e:
         error_msg = f"Query analysis failed: {str(e)}"
         state["error"] = error_msg
-        state["status"] = "error"
+        state["status"] = GraphStatus.ERROR.value
         state["messages"].append(f"[ERROR] {error_msg}")
-        print(f"[ERROR] {error_msg}")
+        logger.error(f"[ERROR] {error_msg}")
 
         # Fallback: treat as single query
         state["analyses"] = [
@@ -352,9 +379,9 @@ def identify_ready_queries_node(state: GraphState) -> GraphState:
     """
     Identify queries that are ready to execute (dependencies satisfied).
     """
-    print("\n" + "=" * 80)
-    print("NODE: Identify Ready Queries")
-    print("=" * 80)
+    logger.info("=" * 80)
+    logger.info("NODE: Identify Ready Queries")
+    logger.info("=" * 80)
 
     ready = []
     for idx in state["remaining_indices"]:
@@ -370,7 +397,7 @@ def identify_ready_queries_node(state: GraphState) -> GraphState:
         error_msg = "Circular dependency detected"
         state["error"] = error_msg
         state["messages"].append(f"[ERROR] {error_msg}")
-        print(f"[ERROR] {error_msg}")
+        logger.error(f"[ERROR] {error_msg}")
 
         # Mark remaining as errors
         for idx in state["remaining_indices"]:
@@ -378,7 +405,7 @@ def identify_ready_queries_node(state: GraphState) -> GraphState:
             state["executed_results"][idx] = QueryResult(
                 sub_question=analysis["sub_question"],
                 intent=analysis["intent"],
-                status="error",
+                status=QueryStatus.ERROR.value,
                 sql_query=None,
                 sql_explanation=None,
                 results=json.dumps({"Error": "Circular dependency"}),
@@ -392,7 +419,7 @@ def identify_ready_queries_node(state: GraphState) -> GraphState:
 
     msg = f"[SUCCESS] Identified {len(ready)} ready queries"
     state["messages"].append(msg)
-    print(msg)
+    logger.info(msg)
 
     return state
 
@@ -401,9 +428,9 @@ def execute_sql_query_node(state: GraphState) -> GraphState:
     """
     Execute SQL queries in current batch with LLM-based self-healing fallback.
     """
-    print("\n" + "=" * 80)
-    print(f"NODE: Execute SQL Queries (Batch: {len(state['current_batch'])})")
-    print("=" * 80)
+    logger.info("=" * 80)
+    logger.info(f"NODE: Execute SQL Queries (Batch: {len(state['current_batch'])})")
+    logger.info("=" * 80)
 
     # Track which indices we process
     processed_indices = []
@@ -416,8 +443,42 @@ def execute_sql_query_node(state: GraphState) -> GraphState:
         )
     except Exception as e:
         error_msg = f"Failed to initialize LLM client: {str(e)}"
+        logger.error(error_msg)
         state["messages"].append(f"[ERROR] {error_msg}")
-        print(f"[ERROR] {error_msg}")
+
+        # Mark all queries in batch as failed
+        for idx in state["current_batch"]:
+            analysis = state["analyses"][idx]
+            state["executed_results"][idx] = QueryResult(
+                sub_question=analysis["sub_question"],
+                intent=analysis["intent"],
+                status=QueryStatus.ERROR.value,
+                sql_query=None,
+                sql_explanation=None,
+                results=json.dumps({"Error": error_msg}),
+                execution_duration=0.0,
+                error=error_msg,
+            )
+
+            # Record in metrics if available
+            metrics = state.get("metrics_collector")
+            if metrics:
+                metrics.record_query_execution(
+                    query_index=idx,
+                    sub_question=analysis["sub_question"],
+                    intent=analysis["intent"],
+                    status="error",
+                    execution_duration=0.0,
+                    error=error_msg,
+                )
+
+        # Remove from remaining indices
+        for idx in state["current_batch"]:
+            if idx in state["remaining_indices"]:
+                state["remaining_indices"].remove(idx)
+
+        # Clear batch
+        state["current_batch"] = []
         return state
 
     for idx in state["current_batch"]:
@@ -428,7 +489,7 @@ def execute_sql_query_node(state: GraphState) -> GraphState:
             continue
 
         processed_indices.append(idx)
-        print(f"\n--- Processing Q{idx + 1}: {analysis['sub_question']} ---")
+        logger.info(f"--- Processing Q{idx + 1}: {analysis['sub_question']} ---")
 
         start_time = time.time()
 
@@ -463,9 +524,11 @@ def execute_summary_search_node(state: GraphState) -> GraphState:
     """
     Execute summary search queries in current batch (placeholder).
     """
-    print("\n" + "=" * 80)
-    print(f"NODE: Execute Summary Searches (Batch: {len(state['current_batch'])})")
-    print("=" * 80)
+    logger.info("=" * 80)
+    logger.info(
+        f"NODE: Execute Summary Searches (Batch: {len(state['current_batch'])})"
+    )
+    logger.info("=" * 80)
 
     # Track which indices we process
     processed_indices = []
@@ -478,22 +541,22 @@ def execute_summary_search_node(state: GraphState) -> GraphState:
             continue
 
         processed_indices.append(idx)
-        print(f"\n--- Processing Q{idx + 1}: {analysis['sub_question']} ---")
-        print("[PLACEHOLDER] Summary search not implemented")
+        logger.info(f"--- Processing Q{idx + 1}: {analysis['sub_question']} ---")
+        logger.info("[PLACEHOLDER] Summary search not implemented")
 
         # Get dependency result if needed
         dependency_result = ""
         if analysis["depends_on_index"] >= 0:
             dep_result = state["executed_results"].get(analysis["depends_on_index"])
-            if dep_result and dep_result["status"] == "success":
+            if dep_result and dep_result["status"] == QueryStatus.SUCCESS.value:
                 dependency_result = dep_result["results"]
-                print(f"→ Using result from Q{analysis['depends_on_index'] + 1}")
+                logger.info(f"→ Using result from Q{analysis['depends_on_index'] + 1}")
 
         # Create placeholder result
         state["executed_results"][idx] = QueryResult(
             sub_question=analysis["sub_question"],
             intent=analysis["intent"],
-            status="placeholder",
+            status=QueryStatus.PLACEHOLDER.value,
             sql_query=None,
             sql_explanation=None,
             results=json.dumps(
@@ -510,7 +573,7 @@ def execute_summary_search_node(state: GraphState) -> GraphState:
             error=None,
         )
 
-        print("[PLACEHOLDER] Marked as complete")
+        logger.info("[PLACEHOLDER] Marked as complete")
 
     # Remove processed indices from remaining
     for idx in processed_indices:
@@ -530,9 +593,9 @@ def generate_final_summary_node(
     Generate final summary combining all query results.
     Uses LLM to create narrative summary with optional tables.
     """
-    print("\n" + "=" * 80)
-    print("NODE: Generate Final Summary")
-    print("=" * 80)
+    logger.info("=" * 80)
+    logger.info("NODE: Generate Final Summary")
+    logger.info("=" * 80)
 
     try:
         llm_client = AzureOpenAI(
@@ -547,7 +610,7 @@ def generate_final_summary_node(
         ]
 
         if not successful_results:
-            print("[SKIP] No successful results to summarize")
+            logger.info("[SKIP] No successful results to summarize")
             # --- CHANGE 1: Return explicit update for no results ---
             return {
                 "final_summary": {
@@ -566,13 +629,13 @@ def generate_final_summary_node(
             query_results=successful_results,
         )
 
-        print("[SUCCESS] Generated final summary")
-        print(f"Has tables: {summary_result['has_tables']}")
-        print(f"Number of tables: {len(summary_result['tables'])}")
+        logger.info("[SUCCESS] Generated final summary")
+        logger.info(f"Has tables: {summary_result['has_tables']}")
+        logger.info(f"Number of tables: {len(summary_result['tables'])}")
 
         if state["enable_debug"]:
-            print("\n--- Summary Preview ---")
-            print(summary_result["summary_text"][:500] + "...")
+            logger.debug("\n--- Summary Preview ---")
+            logger.debug(summary_result["summary_text"][:500] + "...")
 
         # --- CHANGE 2: Return explicit update on success ---
         return {
@@ -582,11 +645,11 @@ def generate_final_summary_node(
     except Exception as e:
         error_msg = f"Failed to generate summary: {str(e)}"
         state["messages"].append(f"[ERROR] {error_msg}")
-        print(f"[ERROR] {error_msg}")
-        print(f"[ERROR] Exception type: {type(e).__name__}")
+        logger.error(f"[ERROR] {error_msg}")
+        logger.error(f"[ERROR] Exception type: {type(e).__name__}")
         import traceback
 
-        print(f"[ERROR] Traceback: {traceback.format_exc()}")
+        logger.error(f"[ERROR] Traceback: {traceback.format_exc()}")
 
         # --- CHANGE 3: Return explicit update on error ---
         return {
@@ -603,9 +666,9 @@ def finalize_results_node(state: GraphState) -> GraphState:
     """
     Finalize and organize all results.
     """
-    print("\n" + "=" * 80)
-    print("NODE: Finalize Results")
-    print("=" * 80)
+    logger.info("=" * 80)
+    logger.info("NODE: Finalize Results")
+    logger.info("=" * 80)
 
     # Build final results in original order
     state["final_results"] = []
@@ -619,7 +682,7 @@ def finalize_results_node(state: GraphState) -> GraphState:
                 QueryResult(
                     sub_question=analysis["sub_question"],
                     intent=analysis["intent"],
-                    status="error",
+                    status=QueryStatus.ERROR.value,
                     sql_query=None,
                     sql_explanation=None,
                     results=json.dumps({"Error": "Query was not executed"}),
@@ -636,17 +699,17 @@ def finalize_results_node(state: GraphState) -> GraphState:
     )
 
     if error_count == 0 and placeholder_count == 0:
-        state["status"] = "success"
+        state["status"] = GraphStatus.SUCCESS.value
     elif success_count > 0 or placeholder_count > 0:
-        state["status"] = "partial_success"
+        state["status"] = GraphStatus.PARTIAL_SUCCESS.value
     else:
-        state["status"] = "error"
+        state["status"] = GraphStatus.ERROR.value
 
     msg = f"[SUCCESS] Finalized {len(state['final_results'])} results"
     state["messages"].append(msg)
-    print(msg)
-    print(f"Status: {state['status']}")
-    print(
+    logger.info(msg)
+    logger.info(f"Status: {state['status']}")
+    logger.info(
         f"Success: {success_count}, Placeholders: {placeholder_count}, Errors: {error_count}"
     )
 

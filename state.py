@@ -63,7 +63,7 @@ class FinalSummary(TypedDict):
     error: Optional[str]  # Added for completeness/error handling
 
 
-class GraphState(TypedDict):
+class GraphState(TypedDict, total=False):
     """
     Main state for the LangGraph workflow.
 
@@ -98,3 +98,6 @@ class GraphState(TypedDict):
 
     # Debugging and logging
     messages: Annotated[List[str], add_messages]  # Log messages
+
+    # Monitoring
+    metrics_collector: Optional[Any]  # MetricsCollector instance
