@@ -198,7 +198,7 @@ def validate_config_object(config: Any) -> bool:
             raise ValidationError(f"Config missing required attribute: {attr}")
 
     # Validate Azure OpenAI config
-    openai_attrs = ["llm_api_key", "llm_endpoint", "llm_deployment_name"]
+    openai_attrs = ["llm_api_key", "llm_endpoint", "llm_deplyment_name"]
     _validate_attributes(config.azure_openai, openai_attrs, "Azure OpenAI config")
 
     # Validate Azure Storage config

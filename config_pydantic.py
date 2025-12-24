@@ -47,7 +47,7 @@ if PYDANTIC_AVAILABLE:
             ..., min_length=1, description="Azure OpenAI endpoint URL"
         )
         llm_api_key: str = Field(..., min_length=1, description="Azure OpenAI API key")
-        llm_deployment_name: str = Field(
+        llm_deplyment_name: str = Field(
             ..., min_length=1, description="LLM deployment name"
         )
         llm_api_version: str = Field(

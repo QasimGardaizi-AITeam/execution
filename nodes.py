@@ -176,7 +176,7 @@ def _run_query_with_self_healing(
             # 2. Generate SQL (passes error for self-healing)
             current_sql_query, current_explanation = generate_sql_chain(
                 llm_client=llm_client,
-                deployment_name=state["config"].azure_openai.llm_deployment_name,
+                deployment_name=state["config"].azure_openai.llm_deplyment_name,
                 user_query=analysis["sub_question"],
                 parquet_schema=parquet_schema,
                 df_sample=df_sample,
@@ -337,7 +337,7 @@ def analyze_query_node(state: GraphState) -> GraphState:
         analyses_list, usage = analyze_query_chain(
             llm_client=llm_client,
             user_question=state["user_question"],
-            deployment_name=state["config"].azure_openai.llm_deployment_name,
+            deployment_name=state["config"].azure_openai.llm_deplyment_name,
             catalog_schema=state["catalog_schema"],
         )
 
@@ -624,7 +624,7 @@ def generate_final_summary_node(
         # Generate summary
         summary_result = generate_final_summary_chain(
             llm_client=llm_client,
-            deployment_name=state["config"].azure_openai.llm_deployment_name,
+            deployment_name=state["config"].azure_openai.llm_deplyment_name,
             user_question=state["user_question"],
             query_results=successful_results,
         )
