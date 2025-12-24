@@ -1,0 +1,1147 @@
+[
+  {
+    "azure_uri": "azure://auxeestorage.blob.core.windows.net/auxee-upload-files/parquet_files/Week1_parquet",
+    "file_name": "Week1_parquet",
+    "columns": [
+      {
+        "name": "reqid",
+        "type": "BIGINT",
+        "nullable": false,
+        "description": "Unique request identifier",
+        "is_primary_key": true
+      },
+      {
+        "name": "repname",
+        "type": "DOUBLE",
+        "nullable": true,
+        "description": "Representative name",
+        "is_primary_key": false
+      },
+      {
+        "name": "caseno",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Case number",
+        "is_primary_key": false
+      },
+      {
+        "name": "csrep",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Customer service representative",
+        "is_primary_key": false
+      },
+      {
+        "name": "refto",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Reference to another entity",
+        "is_primary_key": false
+      },
+      {
+        "name": "status",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Current status of the case",
+        "is_primary_key": false
+      },
+      {
+        "name": "casetype",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Type of case",
+        "is_primary_key": false
+      },
+      {
+        "name": "viewstatus",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Visibility status of the case",
+        "is_primary_key": false
+      },
+      {
+        "name": "reqdate",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Request creation date",
+        "is_primary_key": false
+      },
+      {
+        "name": "closedate",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Case closure date",
+        "is_primary_key": false
+      },
+      {
+        "name": "entrydate",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Date of entry into the system",
+        "is_primary_key": false
+      },
+      {
+        "name": "division",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Division handling the case",
+        "is_primary_key": false
+      },
+      {
+        "name": "priority",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Priority level of the case",
+        "is_primary_key": false
+      },
+      {
+        "name": "source",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Source of the request",
+        "is_primary_key": false
+      },
+      {
+        "name": "subsource",
+        "type": "DOUBLE",
+        "nullable": true,
+        "description": "Subsource of the request",
+        "is_primary_key": false
+      },
+      {
+        "name": "divisioncode",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Code for the division",
+        "is_primary_key": false
+      },
+      {
+        "name": "externalreqid",
+        "type": "DOUBLE",
+        "nullable": true,
+        "description": "External request identifier",
+        "is_primary_key": false
+      },
+      {
+        "name": "transferdate",
+        "type": "DOUBLE",
+        "nullable": true,
+        "description": "Date of transfer",
+        "is_primary_key": false
+      },
+      {
+        "name": "transferstatus",
+        "type": "DOUBLE",
+        "nullable": true,
+        "description": "Status of transfer",
+        "is_primary_key": false
+      },
+      {
+        "name": "notes",
+        "type": "DOUBLE",
+        "nullable": true,
+        "description": "Additional notes",
+        "is_primary_key": false
+      },
+      {
+        "name": "firstresponsedate",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Date of first response",
+        "is_primary_key": false
+      },
+      {
+        "name": "refto1",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Additional reference",
+        "is_primary_key": false
+      },
+      {
+        "name": "csrep1",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Additional customer service rep",
+        "is_primary_key": false
+      },
+      {
+        "name": "handling",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Handling instructions",
+        "is_primary_key": false
+      },
+      {
+        "name": "entryperiod",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Period of entry",
+        "is_primary_key": false
+      },
+      {
+        "name": "repphone",
+        "type": "DOUBLE",
+        "nullable": true,
+        "description": "Representative phone number",
+        "is_primary_key": false
+      },
+      {
+        "name": "reptype",
+        "type": "DOUBLE",
+        "nullable": true,
+        "description": "Type of representative",
+        "is_primary_key": false
+      },
+      {
+        "name": "repno",
+        "type": "DOUBLE",
+        "nullable": true,
+        "description": "Representative number",
+        "is_primary_key": false
+      },
+      {
+        "name": "reqby",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Request made by",
+        "is_primary_key": false
+      },
+      {
+        "name": "dept",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Department handling the case",
+        "is_primary_key": false
+      },
+      {
+        "name": "language",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Language of the request",
+        "is_primary_key": false
+      },
+      {
+        "name": "subno",
+        "type": "DOUBLE",
+        "nullable": true,
+        "description": "Sub-number of the case",
+        "is_primary_key": false
+      },
+      {
+        "name": "fullname",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Full name of the requester",
+        "is_primary_key": false
+      },
+      {
+        "name": "protectionapplied",
+        "type": "DOUBLE",
+        "nullable": true,
+        "description": "Whether protection is applied",
+        "is_primary_key": false
+      },
+      {
+        "name": "protectedfields",
+        "type": "DOUBLE",
+        "nullable": true,
+        "description": "Number of protected fields",
+        "is_primary_key": false
+      },
+      {
+        "name": "ctattachments",
+        "type": "BIGINT",
+        "nullable": true,
+        "description": "Count of attachments",
+        "is_primary_key": false
+      },
+      {
+        "name": "responseduedate",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Response due date",
+        "is_primary_key": false
+      },
+      {
+        "name": "originalcaseowner",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Original owner of the case",
+        "is_primary_key": false
+      },
+      {
+        "name": "localdatereceived",
+        "type": "DOUBLE",
+        "nullable": true,
+        "description": "Local date received",
+        "is_primary_key": false
+      },
+      {
+        "name": "externalreqcode",
+        "type": "DOUBLE",
+        "nullable": true,
+        "description": "External request code",
+        "is_primary_key": false
+      },
+      {
+        "name": "mslid",
+        "type": "DOUBLE",
+        "nullable": true,
+        "description": "MSL identifier",
+        "is_primary_key": false
+      },
+      {
+        "name": "mslemail",
+        "type": "DOUBLE",
+        "nullable": true,
+        "description": "MSL email address",
+        "is_primary_key": false
+      },
+      {
+        "name": "mslphone",
+        "type": "DOUBLE",
+        "nullable": true,
+        "description": "MSL phone number",
+        "is_primary_key": false
+      },
+      {
+        "name": "mslname",
+        "type": "DOUBLE",
+        "nullable": true,
+        "description": "MSL name",
+        "is_primary_key": false
+      },
+      {
+        "name": "msltype",
+        "type": "DOUBLE",
+        "nullable": true,
+        "description": "MSL type",
+        "is_primary_key": false
+      },
+      {
+        "name": "mslcc",
+        "type": "BOOLEAN",
+        "nullable": true,
+        "description": "MSL CC flag",
+        "is_primary_key": false
+      },
+      {
+        "name": "hasinsight",
+        "type": "DOUBLE",
+        "nullable": true,
+        "description": "Insight availability flag",
+        "is_primary_key": false
+      },
+      {
+        "name": "account",
+        "type": "DOUBLE",
+        "nullable": true,
+        "description": "Account information",
+        "is_primary_key": false
+      },
+      {
+        "name": "pisecurity",
+        "type": "BIGINT",
+        "nullable": true,
+        "description": "PI security level",
+        "is_primary_key": false
+      },
+      {
+        "name": "email",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Email address",
+        "is_primary_key": false
+      },
+      {
+        "name": "email2",
+        "type": "DOUBLE",
+        "nullable": true,
+        "description": "Secondary email address",
+        "is_primary_key": false
+      },
+      {
+        "name": "contactmisctext1",
+        "type": "DOUBLE",
+        "nullable": true,
+        "description": "Miscellaneous contact text",
+        "is_primary_key": false
+      },
+      {
+        "name": "specialty",
+        "type": "DOUBLE",
+        "nullable": true,
+        "description": "Specialty of the requester",
+        "is_primary_key": false
+      },
+      {
+        "name": "type",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Type of requester",
+        "is_primary_key": false
+      },
+      {
+        "name": "degree",
+        "type": "DOUBLE",
+        "nullable": true,
+        "description": "Degree of the requester",
+        "is_primary_key": false
+      },
+      {
+        "name": "salutation",
+        "type": "DOUBLE",
+        "nullable": true,
+        "description": "Salutation used",
+        "is_primary_key": false
+      },
+      {
+        "name": "greeting",
+        "type": "DOUBLE",
+        "nullable": true,
+        "description": "Greeting used",
+        "is_primary_key": false
+      },
+      {
+        "name": "class",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Class of the case",
+        "is_primary_key": false
+      },
+      {
+        "name": "region",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Region of the requester",
+        "is_primary_key": false
+      },
+      {
+        "name": "city",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "City of the requester",
+        "is_primary_key": false
+      },
+      {
+        "name": "postal",
+        "type": "DOUBLE",
+        "nullable": true,
+        "description": "Postal code of the requester",
+        "is_primary_key": false
+      },
+      {
+        "name": "country",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Country of the requester",
+        "is_primary_key": false
+      },
+      {
+        "name": "address1",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Primary address",
+        "is_primary_key": false
+      },
+      {
+        "name": "address2",
+        "type": "DOUBLE",
+        "nullable": true,
+        "description": "Secondary address",
+        "is_primary_key": false
+      },
+      {
+        "name": "company",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Company of the requester",
+        "is_primary_key": false
+      },
+      {
+        "name": "title",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Title of the requester",
+        "is_primary_key": false
+      },
+      {
+        "name": "fax",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Fax number",
+        "is_primary_key": false
+      },
+      {
+        "name": "phone",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Phone number",
+        "is_primary_key": false
+      },
+      {
+        "name": "mobilephone",
+        "type": "DOUBLE",
+        "nullable": true,
+        "description": "Mobile phone number",
+        "is_primary_key": false
+      },
+      {
+        "name": "gender",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Gender of the requester",
+        "is_primary_key": false
+      },
+      {
+        "name": "nationalidentifier",
+        "type": "DOUBLE",
+        "nullable": true,
+        "description": "National identifier",
+        "is_primary_key": false
+      },
+      {
+        "name": "responsetype",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Type of response",
+        "is_primary_key": false
+      },
+      {
+        "name": "response",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Response content",
+        "is_primary_key": false
+      },
+      {
+        "name": "question",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Question asked",
+        "is_primary_key": false
+      },
+      {
+        "name": "topic",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Topic of the case",
+        "is_primary_key": false
+      },
+      {
+        "name": "category",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Category of the case",
+        "is_primary_key": false
+      },
+      {
+        "name": "ndcnumber",
+        "type": "DOUBLE",
+        "nullable": true,
+        "description": "NDC number",
+        "is_primary_key": false
+      },
+      {
+        "name": "product",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Product associated with the case",
+        "is_primary_key": false
+      }
+    ],
+    "row_count": 49,
+    "column_count": 78,
+    "table_metadata": {
+      "primary_key": "reqid",
+      "foreign_keys": [],
+      "data_quality_score": 0.85,
+      "has_duplicates": false,
+      "null_percentage": 5.0
+    },
+    "tags": [
+      "customer-service",
+      "case-management",
+      "data-analysis"
+    ],
+    "language": "en",
+    "main_topics": [
+      "customer support",
+      "case tracking"
+    ],
+    "summary": "Dataset contains 78 columns tracking customer service cases and requests."
+  },
+  {
+    "azure_uri": "azure://auxeestorage.blob.core.windows.net/auxee-upload-files/parquet_files/Week4_parquet",
+    "file_name": "Week4_parquet",
+    "columns": [
+      {
+        "name": "reqid",
+        "type": "BIGINT",
+        "nullable": false,
+        "description": "Unique request identifier",
+        "is_primary_key": true
+      },
+      {
+        "name": "repname",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Name of the representative",
+        "is_primary_key": false
+      },
+      {
+        "name": "caseno",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Case number",
+        "is_primary_key": false
+      },
+      {
+        "name": "csrep",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Customer service representative",
+        "is_primary_key": false
+      },
+      {
+        "name": "refto",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Referred to entity",
+        "is_primary_key": false
+      },
+      {
+        "name": "status",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Current status of the request",
+        "is_primary_key": false
+      },
+      {
+        "name": "casetype",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Type of the case",
+        "is_primary_key": false
+      },
+      {
+        "name": "viewstatus",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Visibility status of the case",
+        "is_primary_key": false
+      },
+      {
+        "name": "reqdate",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Date of the request",
+        "is_primary_key": false
+      },
+      {
+        "name": "closedate",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Date the case was closed",
+        "is_primary_key": false
+      },
+      {
+        "name": "entrydate",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Date of entry into the system",
+        "is_primary_key": false
+      },
+      {
+        "name": "division",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Division handling the case",
+        "is_primary_key": false
+      },
+      {
+        "name": "priority",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Priority level of the case",
+        "is_primary_key": false
+      },
+      {
+        "name": "source",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Source of the request",
+        "is_primary_key": false
+      },
+      {
+        "name": "subsource",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Sub-source of the request",
+        "is_primary_key": false
+      },
+      {
+        "name": "divisioncode",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Code of the division",
+        "is_primary_key": false
+      },
+      {
+        "name": "externalreqid",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "External request identifier",
+        "is_primary_key": false
+      },
+      {
+        "name": "transferdate",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Date of transfer",
+        "is_primary_key": false
+      },
+      {
+        "name": "transferstatus",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Status of the transfer",
+        "is_primary_key": false
+      },
+      {
+        "name": "notes",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Additional notes on the case",
+        "is_primary_key": false
+      },
+      {
+        "name": "firstresponsedate",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Date of first response",
+        "is_primary_key": false
+      },
+      {
+        "name": "refto1",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Secondary referral entity",
+        "is_primary_key": false
+      },
+      {
+        "name": "csrep1",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Secondary customer service representative",
+        "is_primary_key": false
+      },
+      {
+        "name": "handling",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Handling details of the case",
+        "is_primary_key": false
+      },
+      {
+        "name": "entryperiod",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Period of entry",
+        "is_primary_key": false
+      },
+      {
+        "name": "repphone",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Phone number of the representative",
+        "is_primary_key": false
+      },
+      {
+        "name": "reptype",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Type of representative",
+        "is_primary_key": false
+      },
+      {
+        "name": "repno",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Representative number",
+        "is_primary_key": false
+      },
+      {
+        "name": "reqby",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Request made by",
+        "is_primary_key": false
+      },
+      {
+        "name": "dept",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Department handling the case",
+        "is_primary_key": false
+      },
+      {
+        "name": "language",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Language of the request",
+        "is_primary_key": false
+      },
+      {
+        "name": "subno",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Sub-number for the case",
+        "is_primary_key": false
+      },
+      {
+        "name": "fullname",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Full name of the individual",
+        "is_primary_key": false
+      },
+      {
+        "name": "protectionapplied",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Indicates if protection applied",
+        "is_primary_key": false
+      },
+      {
+        "name": "protectedfields",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Fields under protection",
+        "is_primary_key": false
+      },
+      {
+        "name": "ctattachments",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Attachments related to the case",
+        "is_primary_key": false
+      },
+      {
+        "name": "responseduedate",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Due date for response",
+        "is_primary_key": false
+      },
+      {
+        "name": "originalcaseowner",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Original owner of the case",
+        "is_primary_key": false
+      },
+      {
+        "name": "localdatereceived",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Local date received",
+        "is_primary_key": false
+      },
+      {
+        "name": "externalreqcode",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "External request code",
+        "is_primary_key": false
+      },
+      {
+        "name": "mslid",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "MSL identifier",
+        "is_primary_key": false
+      },
+      {
+        "name": "mslemail",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "MSL email address",
+        "is_primary_key": false
+      },
+      {
+        "name": "mslphone",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "MSL phone number",
+        "is_primary_key": false
+      },
+      {
+        "name": "mslname",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "MSL name",
+        "is_primary_key": false
+      },
+      {
+        "name": "msltype",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "MSL type",
+        "is_primary_key": false
+      },
+      {
+        "name": "mslcc",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "MSL CC details",
+        "is_primary_key": false
+      },
+      {
+        "name": "hasinsight",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Indicates if insights available",
+        "is_primary_key": false
+      },
+      {
+        "name": "account",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Account details",
+        "is_primary_key": false
+      },
+      {
+        "name": "pisecurity",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "PI security level",
+        "is_primary_key": false
+      },
+      {
+        "name": "email",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Primary email address",
+        "is_primary_key": false
+      },
+      {
+        "name": "email2",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Secondary email address",
+        "is_primary_key": false
+      },
+      {
+        "name": "contactmisctext1",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Miscellaneous contact text",
+        "is_primary_key": false
+      },
+      {
+        "name": "specialty",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Specialty of the individual",
+        "is_primary_key": false
+      },
+      {
+        "name": "type",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Type of entity",
+        "is_primary_key": false
+      },
+      {
+        "name": "degree",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Degree or qualification",
+        "is_primary_key": false
+      },
+      {
+        "name": "salutation",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Salutation for the individual",
+        "is_primary_key": false
+      },
+      {
+        "name": "greeting",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Greeting text",
+        "is_primary_key": false
+      },
+      {
+        "name": "class",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Classification of the case",
+        "is_primary_key": false
+      },
+      {
+        "name": "region",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Region of the case",
+        "is_primary_key": false
+      },
+      {
+        "name": "city",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "City of the case",
+        "is_primary_key": false
+      },
+      {
+        "name": "postal",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Postal code",
+        "is_primary_key": false
+      },
+      {
+        "name": "country",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Country of the case",
+        "is_primary_key": false
+      },
+      {
+        "name": "address1",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Primary address",
+        "is_primary_key": false
+      },
+      {
+        "name": "address2",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Secondary address",
+        "is_primary_key": false
+      },
+      {
+        "name": "company",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Company name",
+        "is_primary_key": false
+      },
+      {
+        "name": "title",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Title of the individual",
+        "is_primary_key": false
+      },
+      {
+        "name": "fax",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Fax number",
+        "is_primary_key": false
+      },
+      {
+        "name": "phone",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Phone number",
+        "is_primary_key": false
+      },
+      {
+        "name": "mobilephone",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Mobile phone number",
+        "is_primary_key": false
+      },
+      {
+        "name": "gender",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Gender of the individual",
+        "is_primary_key": false
+      },
+      {
+        "name": "nationalidentifier",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "National identifier",
+        "is_primary_key": false
+      },
+      {
+        "name": "responsetype",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Type of response",
+        "is_primary_key": false
+      },
+      {
+        "name": "response",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Response details",
+        "is_primary_key": false
+      },
+      {
+        "name": "question",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Question raised in the case",
+        "is_primary_key": false
+      },
+      {
+        "name": "topic",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Topic of the case",
+        "is_primary_key": false
+      },
+      {
+        "name": "category",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Category of the case",
+        "is_primary_key": false
+      },
+      {
+        "name": "ndcnumber",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "NDC number",
+        "is_primary_key": false
+      },
+      {
+        "name": "product",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Product related to the case",
+        "is_primary_key": false
+      }
+    ],
+    "row_count": 199,
+    "column_count": 78,
+    "table_metadata": {
+      "primary_key": "reqid",
+      "foreign_keys": [],
+      "data_quality_score": 0.95,
+      "has_duplicates": false,
+      "null_percentage": 2.5
+    },
+    "tags": [
+      "customer_support",
+      "case_management",
+      "data_analysis",
+      "business_operations"
+    ],
+    "language": "en",
+    "main_topics": [
+      "case management",
+      "customer service"
+    ],
+    "summary": "Dataset contains 78 columns tracking case management and customer service details."
+  }
+]

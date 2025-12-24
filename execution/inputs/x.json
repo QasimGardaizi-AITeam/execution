@@ -1,0 +1,309 @@
+[
+  {
+    "azure_uri": "azure://auxeestorage.blob.core.windows.net/auxee-upload-files/parquet_files/loan.parquet",
+    "file_name": "loan.parquet",
+    "columns": [
+      {
+        "name": "loan_application_id",
+        "type": "VARCHAR",
+        "nullable": false,
+        "description": "Unique identifier for loan application",
+        "is_primary_key": true
+      },
+      {
+        "name": "applicant_name",
+        "type": "VARCHAR",
+        "nullable": false,
+        "description": "Name of the loan applicant",
+        "is_primary_key": false
+      },
+      {
+        "name": "loan_amount_requested",
+        "type": "DOUBLE",
+        "nullable": false,
+        "description": "Amount of loan requested by applicant",
+        "is_primary_key": false
+      },
+      {
+        "name": "loan_type",
+        "type": "VARCHAR",
+        "nullable": false,
+        "description": "Type of loan (e.g., Auto, Personal, Student)",
+        "is_primary_key": false
+      },
+      {
+        "name": "applicant_income",
+        "type": "DOUBLE",
+        "nullable": false,
+        "description": "Annual income of the loan applicant",
+        "is_primary_key": false
+      },
+      {
+        "name": "credit_score",
+        "type": "BIGINT",
+        "nullable": false,
+        "description": "Credit score of the loan applicant",
+        "is_primary_key": false
+      },
+      {
+        "name": "loan_status",
+        "type": "VARCHAR",
+        "nullable": false,
+        "description": "Current status of the loan application",
+        "is_primary_key": false
+      },
+      {
+        "name": "repayment_schedule",
+        "type": "VARCHAR",
+        "nullable": false,
+        "description": "Repayment schedule type (e.g., Monthly, Quarterly)",
+        "is_primary_key": false
+      },
+      {
+        "name": "interest_rate",
+        "type": "DOUBLE",
+        "nullable": false,
+        "description": "Interest rate applied to the loan",
+        "is_primary_key": false
+      },
+      {
+        "name": "loan_term",
+        "type": "BIGINT",
+        "nullable": false,
+        "description": "Loan term in months",
+        "is_primary_key": false
+      },
+      {
+        "name": "collateral",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Collateral provided for the loan",
+        "is_primary_key": false
+      },
+      {
+        "name": "application_date",
+        "type": "VARCHAR",
+        "nullable": false,
+        "description": "Date the loan application was submitted",
+        "is_primary_key": false
+      },
+      {
+        "name": "approved_amount",
+        "type": "DOUBLE",
+        "nullable": true,
+        "description": "Amount approved for the loan",
+        "is_primary_key": false
+      },
+      {
+        "name": "repayment_start_date",
+        "type": "VARCHAR",
+        "nullable": true,
+        "description": "Start date of the loan repayment",
+        "is_primary_key": false
+      },
+      {
+        "name": "is_employed",
+        "type": "BOOLEAN",
+        "nullable": false,
+        "description": "Employment status of the applicant",
+        "is_primary_key": false
+      },
+      {
+        "name": "monthly_payment",
+        "type": "DOUBLE",
+        "nullable": false,
+        "description": "Monthly payment amount for the loan",
+        "is_primary_key": false
+      }
+    ],
+    "row_count": 1000,
+    "column_count": 16,
+    "table_metadata": {
+      "primary_key": "loan_application_id",
+      "foreign_keys": [],
+      "data_quality_score": 0.92,
+      "has_duplicates": false,
+      "null_percentage": 3.1
+    },
+    "tags": [
+      "loans",
+      "finance",
+      "credit",
+      "applications",
+      "repayment"
+    ],
+    "language": "en",
+    "main_topics": [
+      "loan applications",
+      "financial data"
+    ],
+    "summary": "Dataset containing loan application details, including amounts, terms, and statuses."
+  },
+  {
+    "azure_uri": "azure://auxeestorage.blob.core.windows.net/auxee-upload-files/parquet_files/download.parquet",
+    "file_name": "download.parquet",
+    "columns": [
+      {
+        "name": "dataset_1",
+        "type": "BIGINT",
+        "nullable": false,
+        "description": "Numeric identifier or value for dataset 1",
+        "is_primary_key": false
+      },
+      {
+        "name": "dataset_2",
+        "type": "BIGINT",
+        "nullable": false,
+        "description": "Numeric identifier or value for dataset 2",
+        "is_primary_key": false
+      },
+      {
+        "name": "dataset_3",
+        "type": "BIGINT",
+        "nullable": false,
+        "description": "Numeric identifier or value for dataset 3",
+        "is_primary_key": false
+      }
+    ],
+    "row_count": 3,
+    "column_count": 3,
+    "table_metadata": {
+      "primary_key": null,
+      "foreign_keys": [],
+      "data_quality_score": 0.95,
+      "has_duplicates": false,
+      "null_percentage": 0.0
+    },
+    "tags": [
+      "numeric",
+      "data-analysis",
+      "bigint",
+      "structured-data"
+    ],
+    "language": "en",
+    "main_topics": [
+      "data processing",
+      "numerical analysis"
+    ],
+    "summary": "A structured dataset with three numeric columns for data analysis."
+  },
+  {
+    "azure_uri": "azure://auxeestorage.blob.core.windows.net/auxee-upload-files/parquet_files/download_parquet",
+    "file_name": "download_parquet",
+    "columns": [
+      {
+        "name": "price",
+        "type": "BIGINT",
+        "nullable": false,
+        "description": "Property price in local currency",
+        "is_primary_key": false
+      },
+      {
+        "name": "area",
+        "type": "BIGINT",
+        "nullable": false,
+        "description": "Total area of the property in square feet",
+        "is_primary_key": false
+      },
+      {
+        "name": "bedrooms",
+        "type": "BIGINT",
+        "nullable": false,
+        "description": "Number of bedrooms in the property",
+        "is_primary_key": false
+      },
+      {
+        "name": "bathrooms",
+        "type": "BIGINT",
+        "nullable": false,
+        "description": "Number of bathrooms in the property",
+        "is_primary_key": false
+      },
+      {
+        "name": "stories",
+        "type": "BIGINT",
+        "nullable": false,
+        "description": "Number of stories in the property",
+        "is_primary_key": false
+      },
+      {
+        "name": "mainroad",
+        "type": "VARCHAR",
+        "nullable": false,
+        "description": "Whether the property is on the main road",
+        "is_primary_key": false
+      },
+      {
+        "name": "guestroom",
+        "type": "VARCHAR",
+        "nullable": false,
+        "description": "Whether the property has a guestroom",
+        "is_primary_key": false
+      },
+      {
+        "name": "basement",
+        "type": "VARCHAR",
+        "nullable": false,
+        "description": "Whether the property has a basement",
+        "is_primary_key": false
+      },
+      {
+        "name": "hotwaterheating",
+        "type": "VARCHAR",
+        "nullable": false,
+        "description": "Whether the property has hot water heating",
+        "is_primary_key": false
+      },
+      {
+        "name": "airconditioning",
+        "type": "VARCHAR",
+        "nullable": false,
+        "description": "Whether the property has air conditioning",
+        "is_primary_key": false
+      },
+      {
+        "name": "parking",
+        "type": "BIGINT",
+        "nullable": false,
+        "description": "Number of parking spaces available",
+        "is_primary_key": false
+      },
+      {
+        "name": "prefarea",
+        "type": "VARCHAR",
+        "nullable": false,
+        "description": "Whether the property is in a preferred area",
+        "is_primary_key": false
+      },
+      {
+        "name": "furnishingstatus",
+        "type": "VARCHAR",
+        "nullable": false,
+        "description": "Furnishing status of the property",
+        "is_primary_key": false
+      }
+    ],
+    "row_count": 545,
+    "column_count": 13,
+    "table_metadata": {
+      "primary_key": null,
+      "foreign_keys": [],
+      "data_quality_score": 0.95,
+      "has_duplicates": false,
+      "null_percentage": 0.0
+    },
+    "tags": [
+      "real estate",
+      "housing",
+      "properties",
+      "pricing",
+      "amenities"
+    ],
+    "language": "en",
+    "main_topics": [
+      "real estate",
+      "property analysis"
+    ],
+    "summary": "Dataset contains property details including price, area, amenities, and location."
+  }
+]
