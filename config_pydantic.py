@@ -266,19 +266,3 @@ else:
         raise ImportError(
             "Pydantic is not installed. Please install it with: pip install pydantic pydantic-settings"
         )
-
-
-# Example usage:
-"""
-# After installing pydantic:
-# pip install pydantic pydantic-settings
-
-from pipeline.config_pydantic import get_config
-
-try:
-    config = get_config()
-    print("Configuration loaded successfully!")
-    print(f"LLM Endpoint: {config.azure_openai.llm_endpoint}")
-except Exception as e:
-    print(f"Configuration error: {e}")
-"""
