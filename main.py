@@ -133,10 +133,9 @@ def process_query(
 
 
 def main():
-    from config import VectorDBType, get_config
+    from config import get_config
 
-    # Load configuration
-    config = get_config(VectorDBType.CHROMADB)
+    config = get_config()
 
     # Load catalog
     CATALOG_FILE = "./inputs/asad.json"

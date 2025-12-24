@@ -1,104 +1,110 @@
 """
-Universal Configuration Module
-Centralized configuration for the entire parquet-pipeline application.
-All modules should import config from here instead of loading env vars directly.
+Pydantic-based configuration validation with runtime checks
 """
 
-import os
-from dataclasses import dataclass, field
-from enum import Enum
-from typing import List, Optional
+from typing import Optional
 
 from dotenv import load_dotenv
+from pydantic import BaseModel, Field, field_validator
+from pydantic_settings import BaseSettings
 
-# Load environment variables
 load_dotenv()
 
 
-class VectorDBType(Enum):
-    """Supported vector database types"""
+class AzureOpenAIConfig(BaseModel):
+    """Azure OpenAI configuration with validation"""
 
-    CHROMADB = "chromadb"
+    model_config = {"frozen": True}  # Immutable after creation
 
+    # LLM Configuration
+    llm_endpoint: str = Field(
+        ..., min_length=1, description="Azure OpenAI endpoint URL"
+    )
+    llm_api_key: str = Field(..., min_length=1, description="Azure OpenAI API key")
+    llm_deplyment_name: str = Field(
+        ..., min_length=1, description="LLM deployment name"
+    )
+    llm_api_version: str = Field(
+        default="2024-08-01-preview", description="API version"
+    )
+    llm_model_name: str = Field(default="gpt-4o", description="Model name")
 
-@dataclass
-class AzureOpenAIConfig:
-    """Azure OpenAI configuration for LLM and embeddings"""
-
-    # --- Non-default fields (Must be defined first) ---
-    # LLM (GPT-4o) Configuration
-    llm_endpoint: str
-    llm_api_key: str
-    llm_deplyment_name: str
-
-    # Embedding Configuration
-    embedding_endpoint: str
-    embedding_api_key: str
-    embedding_deployment_name: str
-
-    # --- Default fields (Must be defined last) ---
-    llm_api_version: str = "2024-08-01-preview"
-    llm_model_name: str = "gpt-4o"
-    embedding_api_version: str = "2024-02-01"
-
+    @field_validator("llm_endpoint")
     @classmethod
-    def from_env(cls):
-        """Load configuration from environment variables"""
-        # LLM settings
-        llm_endpoint = os.getenv("azureOpenAIEndpoint")
-        llm_api_key = os.getenv("azureOpenAIApiKey")
-        llm_deplyment_name = os.getenv("azureOpenAIApiDeploymentName")
-        llm_api_version = os.getenv("azureOpenAIApiVersion", "2024-08-01-preview")
+    def validate_endpoint(cls, v: str) -> str:
+        """Validate endpoint is a valid URL"""
+        if not v.startswith(("http://", "https://")):
+            raise ValueError(f"Endpoint must start with http:// or https://, got: {v}")
+        return v.rstrip("/")
 
-        # Embedding settings
-        embedding_resource = os.getenv("OPENAI_EMBEDDING_RESOURCE")
-        # NOTE: embedding_endpoint is set conditionally, but the dataclass definition requires it to be supplied
-        # The logic here makes it None if the resource is missing, which is validated below.
-        embedding_endpoint = (
-            f"https://{embedding_resource}.openai.azure.com/"
-            if embedding_resource
-            else None
-        )
-        embedding_api_key = os.getenv("OPENAI_EMBEDDING_API_KEY")
-        embedding_deployment_name = os.getenv("OPENAI_EMBEDDING_MODEL")
-        embedding_api_version = os.getenv("OPENAI_EMBEDDING_VERSION", "2024-02-01")
+    @field_validator("llm_api_key")
+    @classmethod
+    def validate_api_key(cls, v: str) -> str:
+        """Validate API key is not a placeholder"""
+        if v.strip().lower() in ("", "your-api-key", "placeholder", "xxx", "none"):
+            raise ValueError("API key appears to be a placeholder value")
+        if len(v.strip()) < 20:
+            raise ValueError("API key appears to be too short (minimum 20 characters)")
+        return v
 
-        # Validate required fields
-        if not all([llm_endpoint, llm_api_key, llm_deplyment_name]):
+
+class AzureStorageConfig(BaseModel):
+    """Azure Blob Storage configuration with validation"""
+
+    model_config = {"frozen": True}
+
+    account_name: str = Field(
+        ..., min_length=3, max_length=24, description="Storage account name"
+    )
+    container_name: str = Field(
+        ..., min_length=3, max_length=63, description="Container name"
+    )
+    connection_string: str = Field(..., min_length=1, description="Connection string")
+    blob_url: str = Field(
+        default="azure://auxeestorage.blob.core.windows.net/auxee-upload-files/",
+        description="Base blob URL",
+    )
+    account_key: Optional[str] = Field(default=None, description="Storage account key")
+    parquet_output_dir: str = Field(
+        default="parquet_files/", description="Parquet output directory"
+    )
+
+    @field_validator("account_name")
+    @classmethod
+    def validate_account_name(cls, v: str) -> str:
+        """Validate storage account name follows Azure naming rules"""
+        if not v.islower():
+            raise ValueError("Storage account name must be lowercase")
+        if not v.isalnum():
+            raise ValueError("Storage account name must be alphanumeric")
+        return v
+
+    @field_validator("container_name")
+    @classmethod
+    def validate_container_name(cls, v: str) -> str:
+        """Validate container name follows Azure naming rules"""
+        if not v.islower():
+            raise ValueError("Container name must be lowercase")
+        if not all(c.isalnum() or c == "-" for c in v):
             raise ValueError(
-                "Missing required LLM configuration. Check your .env file."
+                "Container name can only contain lowercase letters, numbers, and hyphens"
             )
+        if v.startswith("-") or v.endswith("-"):
+            raise ValueError("Container name cannot start or end with a hyphen")
+        if "--" in v:
+            raise ValueError("Container name cannot contain consecutive hyphens")
+        return v
 
-        if not all([embedding_endpoint, embedding_api_key, embedding_deployment_name]):
+    @field_validator("connection_string")
+    @classmethod
+    def validate_connection_string(cls, v: str) -> str:
+        """Validate connection string format"""
+        required_parts = ["AccountName=", "AccountKey="]
+        if not all(part in v for part in required_parts):
             raise ValueError(
-                "Missing required embedding configuration. Check your .env file."
+                "Connection string must contain AccountName and AccountKey"
             )
-
-        return cls(
-            llm_endpoint=llm_endpoint,
-            llm_api_key=llm_api_key,
-            llm_deplyment_name=llm_deplyment_name,
-            llm_api_version=llm_api_version,
-            embedding_endpoint=embedding_endpoint,
-            embedding_api_key=embedding_api_key,
-            embedding_deployment_name=embedding_deployment_name,
-            embedding_api_version=embedding_api_version,
-        )
-
-
-@dataclass
-class AzureStorageConfig:
-    """Azure Blob Storage configuration"""
-
-    # Non-default fields
-    account_name: str
-    container_name: str
-    connection_string: str
-    blob_url: str = "azure://auxeestorage.blob.core.windows.net/auxee-upload-files/"
-
-    # Default fields
-    account_key: Optional[str] = None
-    parquet_output_dir: str = "parquet_files/"
+        return v
 
     @property
     def glob_pattern(self) -> str:
@@ -108,128 +114,85 @@ class AzureStorageConfig:
             f"{self.container_name}/{self.parquet_output_dir}*.parquet"
         )
 
-    @classmethod
-    def from_env(cls):
-        """Load configuration from environment variables"""
-        account_name = os.getenv("azure_storage_account_name")
-        container_name = os.getenv("azure_storage_container_name")
-        connection_string = os.getenv("azure_storage_connection_string")
-        account_key = os.getenv("azure_storage_account_key")
 
-        if not all([account_name, container_name, connection_string]):
-            raise ValueError(
-                "Missing required Azure Storage configuration. Check your .env file."
-            )
+class AppConfig(BaseSettings):
+    """
+    Main application configuration with Pydantic validation.
 
-        return cls(
-            account_name=account_name,
-            container_name=container_name,
-            connection_string=connection_string,
-            account_key=account_key,
-        )
+    Automatically loads from environment variables.
+    Environment variables should be prefixed with the field name.
 
+    Example .env:
+        azureOpenAIEndpoint=https://...
+        azureOpenAIApiKey=...
+        azure_storage_account_name=...
+    """
 
-@dataclass
-class ChromaDBConfig:
-    """ChromaDB configuration"""
+    model_config = {
+        "case_sensitive": False,
+        "env_nested_delimiter": "__",  # For nested configs: AZURE_OPENAI__LLM_ENDPOINT
+    }
 
-    # Default fields
-    persist_directory: str = "./chroma_db"
-    collection_prefix: str = "data_source"
-    anonymized_telemetry: bool = False
-
-    @classmethod
-    def from_env(cls):
-        """Load configuration from environment variables"""
-        persist_directory = os.getenv("CHROMA_PERSIST_DIRECTORY", "./chroma_db")
-        collection_prefix = os.getenv("CHROMA_COLLECTION_PREFIX", "data_source")
-
-        return cls(
-            persist_directory=persist_directory, collection_prefix=collection_prefix
-        )
-
-
-@dataclass
-class VectorDBConfig:
-    """Vector database configuration"""
-
-    # Non-default fields
-    db_type: VectorDBType
-
-    # Default fields
-    chromadb: Optional[ChromaDBConfig] = None
-
-    @classmethod
-    def from_env(cls, db_type: VectorDBType = VectorDBType.CHROMADB):
-        """Load configuration based on selected database type"""
-
-        if db_type == VectorDBType.CHROMADB:
-            chromadb_config = ChromaDBConfig.from_env()
-            return cls(db_type=db_type, chromadb=chromadb_config)
-
-        raise ValueError(f"Unsupported VectorDB type: {db_type}")
-
-
-@dataclass
-class AppConfig:
-    """Main application configuration"""
-
-    # Non-default fields (Sub-configurations)
+    # Sub-configurations
     azure_openai: AzureOpenAIConfig
     azure_storage: AzureStorageConfig
-    vector_db: VectorDBConfig
 
-    # Default fields
     # Application settings
-    input_file_paths: List[str] = field(
-        default_factory=lambda: [
-            "../sheets/file1.xlsx",
-            "../sheets/file2.xlsx",
-            "../sheets/loan.xlsx",
-            "../sheets/Formulation_Test.xlsx",
-            "../sheets/Formulation2.xlsx",
-            "../sheets/PAID NARCAN Sample Data.xlsx",
-        ]
+    enable_debug: bool = Field(default=False, description="Enable debug mode")
+    max_retries: int = Field(
+        default=3, ge=1, le=10, description="Maximum retry attempts"
+    )
+    timeout_seconds: int = Field(
+        default=30, ge=5, le=300, description="Request timeout"
     )
 
-    # Performance settings
-    enable_debug: bool = False
-
     @classmethod
-    def from_env(cls, vector_db_type: VectorDBType = VectorDBType.CHROMADB):
-        """Load complete configuration from environment variables"""
-        try:
-            azure_openai = AzureOpenAIConfig.from_env()
-            azure_storage = AzureStorageConfig.from_env()
-            vector_db = VectorDBConfig.from_env(db_type=vector_db_type)
+    def from_env(cls) -> "AppConfig":
+        """
+        Load configuration from environment variables.
 
-            print("[INFO] Configuration loaded successfully")
+        This method manually constructs the config from specific env vars
+        to match your existing naming convention.
 
-            return cls(
-                azure_openai=azure_openai,
-                azure_storage=azure_storage,
-                vector_db=vector_db,
-            )
-        except ValueError as e:
-            print(f"[FATAL ERROR] Configuration failed: {e}")
-            raise
+        Returns:
+            Validated AppConfig instance
+
+        Raises:
+            ValidationError: If configuration is invalid
+        """
+        import os
+
+        # Build AzureOpenAIConfig from env
+        azure_openai = AzureOpenAIConfig(
+            llm_endpoint=os.getenv("azureOpenAIEndpoint", ""),
+            llm_api_key=os.getenv("azureOpenAIApiKey", ""),
+            llm_deplyment_name=os.getenv("azureOpenAIApiDeploymentName", ""),
+            llm_api_version=os.getenv("azureOpenAIApiVersion", "2024-08-01-preview"),
+        )
+
+        # Build AzureStorageConfig from env
+        azure_storage = AzureStorageConfig(
+            account_name=os.getenv("azure_storage_account_name", ""),
+            container_name=os.getenv("azure_storage_container_name", ""),
+            connection_string=os.getenv("azure_storage_connection_string", ""),
+            account_key=os.getenv("azure_storage_account_key"),
+        )
+
+        # Build AppConfig
+        return cls(
+            azure_openai=azure_openai,
+            azure_storage=azure_storage,
+            enable_debug=os.getenv("ENABLE_DEBUG", "false").lower() == "true",
+        )
 
     def validate(self) -> bool:
-        """Validate configuration"""
-        # Check if all required settings are present
-        if not self.azure_openai.llm_api_key:
-            print("[ERROR] Missing LLM API key")
-            return False
+        """
+        Additional validation beyond Pydantic's automatic validation.
 
-        if not self.azure_openai.embedding_api_key:
-            print("[ERROR] Missing Embedding API key")
-            return False
-
-        if not self.azure_storage.connection_string:
-            print("[ERROR] Missing Azure Storage connection string")
-            return False
-
-        print("[INFO] Configuration validation passed")
+        Note: Most validation happens automatically via Pydantic validators.
+        This method is kept for backwards compatibility.
+        """
+        print("[INFO] Pydantic configuration validation passed")
         return True
 
 
@@ -237,42 +200,35 @@ class AppConfig:
 _config: Optional[AppConfig] = None
 
 
-def get_config(
-    vector_db_type: VectorDBType = VectorDBType.CHROMADB, force_reload: bool = False
-) -> AppConfig:
+def get_config(force_reload: bool = False) -> AppConfig:
     """
     Get the global configuration instance.
 
     Args:
-        vector_db_type: Type of vector database to use (default: ChromaDB)
         force_reload: Force reload configuration from environment
 
     Returns:
-        AppConfig instance
+        Validated AppConfig instance
+
+    Raises:
+        ValidationError: If configuration is invalid
     """
     global _config
 
     if _config is None or force_reload:
-        _config = AppConfig.from_env(vector_db_type=vector_db_type)
-        _config.validate()
+        try:
+            _config = AppConfig.from_env()
+            print("[INFO] Configuration loaded and validated successfully")
+        except Exception as e:
+            print(f"[FATAL ERROR] Configuration validation failed: {e}")
+            raise
 
     return _config
 
 
-def set_vector_db(db_type: VectorDBType):
-    """Switch vector database type"""
-    global _config
-    _config = AppConfig.from_env(vector_db_type=db_type)
-    _config.validate()
-    print(f"[INFO] Switched to {db_type.value}")
-
-
-# For backwards compatibility with existing Config class
+# Backwards compatibility class
 class Config:
-    """
-    Legacy Config class for backwards compatibility.
-    New code should use get_config() instead.
-    """
+    """Legacy Config class for backwards compatibility"""
 
     _app_config = None
 
@@ -304,8 +260,8 @@ class Config:
 
     @classmethod
     @property
-    def llm_model_name(cls):
-        return cls._get_app_config().azure_openai.llm_model_name
+    def azure_storage_connection_string(cls):
+        return cls._get_app_config().azure_storage.connection_string
 
     @classmethod
     @property
@@ -317,32 +273,6 @@ class Config:
     def azure_storage_container_name(cls):
         return cls._get_app_config().azure_storage.container_name
 
-    @classmethod
-    @property
-    def azure_storage_account_key(cls):
-        return cls._get_app_config().azure_storage.account_key
-
-    @classmethod
-    @property
-    def azure_storage_connection_string(cls):
-        return cls._get_app_config().azure_storage.connection_string
-
-    @classmethod
-    @property
-    def input_file_paths(cls):
-        return cls._get_app_config().input_file_paths
-
-    @classmethod
-    @property
-    def parquet_output_dir(cls):
-        return cls._get_app_config().azure_storage.parquet_output_dir
-
-    @classmethod
-    @property
-    def all_parquet_global_pattern(cls):
-        return cls._get_app_config().azure_storage.glob_pattern
-
     @staticmethod
     def validate_env():
-        """Validate environment configuration"""
         return get_config().validate()
