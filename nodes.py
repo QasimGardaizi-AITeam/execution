@@ -220,6 +220,13 @@ def _log_and_record_result(
             error=None,
         )
 
+        # Log success details
+        logger.info(f"[SUCCESS] Executed in {execution_duration:.2f}s")
+        logger.info(f"[RESULTS] {result_df.shape[0]} rows x {result_df.shape[1]} cols")
+
+        if state["enable_debug"] and not result_df.empty:
+            logger.debug("\n" + result_df.head(5).to_markdown(index=False))
+
     # Record metrics if collector available
     metrics = state.get("metrics_collector")
     if metrics:
@@ -236,11 +243,6 @@ def _log_and_record_result(
             row_count=row_count,
             error=error_msg,
         )
-        print(f"[SUCCESS] Executed in {execution_duration:.2f}s")
-        print(f"[RESULTS] {result_df.shape[0]} rows x {result_df.shape[1]} cols")
-
-        if state["enable_debug"] and not result_df.empty:
-            print("\n" + result_df.head(5).to_markdown(index=False))
 
 
 # ===========================================================================
