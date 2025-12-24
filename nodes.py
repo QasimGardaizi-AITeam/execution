@@ -46,7 +46,7 @@ def _get_dependency_result(
 
     if dep_idx >= 0:
         dep_result = state["executed_results"].get(dep_idx)
-        if dep_result and dep_result["status"] == QueryStatus.SUCCESS:
+        if dep_result and dep_result["status"] == QueryStatus.SUCCESS.value:
             dependency_result = dep_result["results"]
             if attempt == 0 or state["enable_debug"]:
                 logger.info(f"Using result from Q{dep_idx + 1}")
@@ -195,24 +195,32 @@ def _log_and_record_result(
 ) -> None:
     """Logs the final result and records it in the state."""
 
+    # Determine status and row_count first
     if error_msg:
-        # Final failure case
+        status = QueryStatus.ERROR.value
+        row_count = None
+
+        # Record error result
         state["executed_results"][idx] = QueryResult(
             sub_question=analysis["sub_question"],
             intent=analysis["intent"],
-            status=QueryStatus.ERROR.value,
+            status=status,
             sql_query=sql_query,
             sql_explanation=explanation,
             results=json.dumps({"Error": error_msg}),
             execution_duration=execution_duration,
             error=error_msg,
         )
+
     elif result_df is not None:
-        # Final success case
+        status = QueryStatus.SUCCESS.value
+        row_count = result_df.shape[0]
+
+        # Record success result
         state["executed_results"][idx] = QueryResult(
             sub_question=analysis["sub_question"],
             intent=analysis["intent"],
-            status=QueryStatus.SUCCESS.value,
+            status=status,
             sql_query=sql_query,
             sql_explanation=explanation,
             results=df_to_json_result(result_df),
@@ -220,20 +228,21 @@ def _log_and_record_result(
             error=None,
         )
 
-        # Log success details
-        logger.info(f"[SUCCESS] Executed in {execution_duration:.2f}s")
-        logger.info(f"[RESULTS] {result_df.shape[0]} rows x {result_df.shape[1]} cols")
+        # Log success
+        logger.info(f"Executed in {execution_duration:.2f}s")
+        logger.info(f"Results: {row_count} rows x {result_df.shape[1]} cols")
 
         if state["enable_debug"] and not result_df.empty:
             logger.debug("\n" + result_df.head(5).to_markdown(index=False))
 
+    else:
+        # Shouldn't happen, but handle it
+        status = QueryStatus.ERROR.value
+        row_count = None
+
     # Record metrics if collector available
     metrics = state.get("metrics_collector")
     if metrics:
-        row_count = (
-            result_df.shape[0] if result_df is not None and error_msg is None else None
-        )
-        status = "success" if error_msg is None else "error"
         metrics.record_query_execution(
             query_index=idx,
             sub_question=analysis["sub_question"],
