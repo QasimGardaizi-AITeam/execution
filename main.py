@@ -138,7 +138,7 @@ def main():
     config = get_config()
 
     # Load catalog
-    CATALOG_FILE = "./inputs/asad.json"
+    CATALOG_FILE = "./inputs/emergent.json"
     try:
         with open(CATALOG_FILE, "r") as f:
             catalog_data = json.load(f)
@@ -161,9 +161,14 @@ def main():
     # Test queries
 
     test_queries = [
-        # "Categorize the questions based on products and response methods (e.g., verbal, email). Provide examples and keep information specific. Identify which products are receiving the most inquiries and categorise the types of questions being asked about each product. Provide a breakdown of the frequency and nature of the questions for each product. Please mention which file you are picking the response from at the start of the response.",
-        "Using Region, Product Category, Q1 Sales, Q2 Sales, Q3 Sales, and Q4 Sales, find the product category in each region that has the highest total annual sales.",
-        # "For each region, which product category has the highest yearly sales (Q1+Q2+Q3+Q4)?",
+        """Please pick all the weekly files based on the date ranges mentioned in their names.
+For each weekly file, clearly mention the file name at the start of your response.
+For every week, perform the following analysis:
+• Identify which product received the highest number of inquiries for that week and state the exact count.
+• Create a table showing the total number of inquiries for each product.
+• Provide a detailed breakdown of the types of questions asked for each product. (Use the Topic column as the question type.)
+• Present the results week-by-week in separate sections.
+• Ensure that all counts and question types are derived only from the file belonging to that week."""
     ]
     for query in test_queries:
         logger.info(f"PROCESSING: {query}")

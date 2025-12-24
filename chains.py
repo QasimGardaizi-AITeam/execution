@@ -87,10 +87,12 @@ You are an expert query analyzer. Analyze the user's question and provide struct
 1. Break into MULTIPLE sub-questions ONLY if atomically independent OR dependent
 2. Keep as SINGLE question if parts share same filter/aggregation
 3. If handled by single SQL query, do NOT decompose
+4. Make Minimum number of sub-questions that can be handled by single SQL query either by join or by cte or simple query.
 
 **INTENT CLASSIFICATION:**
 - SQL_QUERY: Precise filtering, aggregation, dates, numerical comparisons
 - SUMMARY_SEARCH: Fuzzy logic, conceptual search, RAG, GraphDB
+(FOR NOW RETURN ONLY SQL_QUERY)
 
 **FILE IDENTIFICATION:**
 1. Use EXACT file names from catalog
