@@ -3,8 +3,7 @@ LangGraph workflow definition for multi-intent query processing
 """
 
 from langgraph.graph import END, StateGraph
-
-from .nodes import (
+from nodes import (
     analyze_query_node,
     execute_sql_query_node,
     execute_summary_search_node,
@@ -14,7 +13,7 @@ from .nodes import (
     should_continue_execution,
     validate_input_node,
 )
-from .state import GraphState
+from state import GraphState
 
 
 def create_query_processing_graph() -> StateGraph:

@@ -7,7 +7,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from .logging_config import get_logger
+from logging_config import get_logger
 
 logger = get_logger()
 

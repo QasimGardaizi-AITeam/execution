@@ -14,7 +14,7 @@ Using enums instead of magic strings provides:
 - Self-documenting code
 
 Usage:
-    from .enums import QueryStatus, IntentType, GraphStatus
+    from enums import QueryStatus, IntentType, GraphStatus
 
     # Use .value to get the string representation
     result = {

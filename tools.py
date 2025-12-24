@@ -8,9 +8,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import duckdb
 import pandas as pd
-
-from .logging_config import get_logger
-from .retry_utils import retry_with_exponential_backoff
+from logging_config import get_logger
+from retry_utils import retry_with_exponential_backoff
 
 logger = get_logger()
 

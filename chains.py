@@ -5,10 +5,9 @@ LLM chains for query analysis and SQL generation
 import json
 from typing import Any, Dict, List, Optional, Tuple
 
+from logging_config import get_logger, log_llm_call, track_execution_time
 from openai import APIError, AzureOpenAI, RateLimitError, Timeout
-
-from .logging_config import get_logger, log_llm_call, track_execution_time
-from .retry_utils import retry_with_exponential_backoff
+from retry_utils import retry_with_exponential_backoff
 
 logger = get_logger()
 
@@ -254,7 +253,7 @@ Generate DuckDB SQL query for Parquet files on Azure Blob Storage.
 2. **COLUMN ALIASES:** Use `AS` to give clear, user-friendly names to calculated fields (e.g., `SUM(...) AS total_sales`).
 3. **MANDATORY GROUPING:** If the `SELECT` clause contains any aggregate function (like `SUM`, `AVG`, `COUNT`), you **MUST** include a `GROUP BY` clause listing all non-aggregated columns (`region`, `product_category`, etc.). This is required to prevent "Binder Error."
 4. **RANKING/TOP-N:** For "highest X per Y" or "top N" questions, you **MUST** use the `QUALIFY` clause with a Window Function (`ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY sum_col DESC) = 1`) to filter the results.
-5. **CLAUSE ORDER (CRITICAL):** The sequence of clauses is strictly enforced: `... FROM ... WHERE ... **GROUP BY** ... **QUALIFY** ...  . The **GROUP BY** clause must immediately precede the **QUALIFY** clause.
+5. **CLAUSE ORDER (CRITICAL):** The sequence of clauses is strictly enforced: `... from .. WHERE ... **GROUP BY** ... **QUALIFY** ...  . The **GROUP BY** clause must immediately precede the **QUALIFY** clause.
 6. **AGGREGATION CHOICE:** When calculating totals (e.g., "annual sales"), use `SUM()`.
 7. **NULL HANDLING:** Include `WHERE column IS NOT NULL` for all columns used in critical calculations (aggregations, filters) to ensure accuracy.
 8. **JSON FORMAT:** Your final output MUST be a valid JSON object.

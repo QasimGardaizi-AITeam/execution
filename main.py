@@ -6,11 +6,11 @@ import json
 import time
 from typing import Any, Dict
 
-from .graph import create_query_processing_graph
-from .logging_config import get_logger
-from .monitoring import MetricsCollector
-from .state import GraphState
-from .validation import ValidationError, sanitize_user_question, validate_config_object
+from graph import create_query_processing_graph
+from logging_config import get_logger
+from monitoring import MetricsCollector
+from state import GraphState
+from validation import ValidationError, sanitize_user_question, validate_config_object
 
 logger = get_logger()
 
@@ -133,14 +133,13 @@ def process_query(
 
 
 def main():
-    """Example usage"""
-    from ..config import VectorDBType, get_config
+    from config import VectorDBType, get_config
 
     # Load configuration
     config = get_config(VectorDBType.CHROMADB)
 
     # Load catalog
-    CATALOG_FILE = "./pipeline/execution/asad.json"
+    CATALOG_FILE = "./inputs/asad.json"
     try:
         with open(CATALOG_FILE, "r") as f:
             catalog_data = json.load(f)

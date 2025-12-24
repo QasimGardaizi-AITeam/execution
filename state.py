@@ -4,10 +4,9 @@ State definitions for the multi-intent query processing graph
 
 from typing import Any, Dict, List, Optional, TypedDict
 
+from enums import GraphStatus, IntentType, QueryStatus
 from langgraph.graph import add_messages
 from typing_extensions import Annotated
-
-from .enums import GraphStatus, IntentType, QueryStatus
 
 
 class QueryAnalysis(TypedDict):
