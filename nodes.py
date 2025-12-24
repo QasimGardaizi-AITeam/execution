@@ -37,6 +37,46 @@ class SqlExecutionError(Exception):
 
 
 # HELPER FUNCTIONS FOR execute_sql_query_node
+def _handle_client_init_error(state: GraphState, error_msg: str) -> None:
+    """Handles the state update when the LLM client fails to initialize."""
+    logger.error(error_msg)
+    state["messages"].append(f"[ERROR] {error_msg}")
+
+    # Mark all queries in batch as failed
+    for idx in state["current_batch"]:
+        analysis = state["analyses"][idx]
+        state["executed_results"][idx] = QueryResult(
+            sub_question=analysis["sub_question"],
+            intent=analysis["intent"],
+            status=QueryStatus.ERROR.value,
+            sql_query=None,
+            sql_explanation=None,
+            results=json.dumps({"Error": error_msg}),
+            execution_duration=0.0,
+            error=error_msg,
+        )
+
+        # Record in metrics if available
+        metrics = state.get("metrics_collector")
+        if metrics:
+            metrics.record_query_execution(
+                query_index=idx,
+                sub_question=analysis["sub_question"],
+                intent=analysis["intent"],
+                status="error",
+                execution_duration=0.0,
+                error=error_msg,
+            )
+
+    # Remove from remaining indices
+    for idx in state["current_batch"]:
+        if idx in state["remaining_indices"]:
+            state["remaining_indices"].remove(idx)
+
+    # Clear batch
+    state["current_batch"] = []
+
+
 def _get_dependency_result(
     state: GraphState, analysis: QueryAnalysis, attempt: int
 ) -> str:
@@ -263,9 +303,8 @@ def validate_input_node(state: GraphState) -> GraphState:
     """
     Validate input state and initialize fields.
     """
-    logger.info("=" * 80)
+
     logger.info("NODE: Validate Input")
-    logger.info("=" * 80)
 
     # Validate required fields
     is_valid, error_msg = validate_state(state)
@@ -295,9 +334,8 @@ def analyze_query_node(state: GraphState) -> GraphState:
     """
     Analyze user query and decompose into sub-questions.
     """
-    logger.info("=" * 80)
+
     logger.info("NODE: Analyze Query")
-    logger.info("=" * 80)
 
     try:
         llm_client = AzureOpenAI(
@@ -390,9 +428,8 @@ def identify_ready_queries_node(state: GraphState) -> GraphState:
     """
     Identify queries that are ready to execute (dependencies satisfied).
     """
-    logger.info("=" * 80)
+
     logger.info("NODE: Identify Ready Queries")
-    logger.info("=" * 80)
 
     ready = []
     for idx in state["remaining_indices"]:
@@ -439,9 +476,8 @@ def execute_sql_query_node(state: GraphState) -> GraphState:
     """
     Execute SQL queries in current batch with LLM-based self-healing fallback.
     """
-    logger.info("=" * 80)
+
     logger.info(f"NODE: Execute SQL Queries (Batch: {len(state['current_batch'])})")
-    logger.info("=" * 80)
 
     # Track which indices we process
     processed_indices = []
@@ -454,42 +490,7 @@ def execute_sql_query_node(state: GraphState) -> GraphState:
         )
     except Exception as e:
         error_msg = f"Failed to initialize LLM client: {str(e)}"
-        logger.error(error_msg)
-        state["messages"].append(f"[ERROR] {error_msg}")
-
-        # Mark all queries in batch as failed
-        for idx in state["current_batch"]:
-            analysis = state["analyses"][idx]
-            state["executed_results"][idx] = QueryResult(
-                sub_question=analysis["sub_question"],
-                intent=analysis["intent"],
-                status=QueryStatus.ERROR.value,
-                sql_query=None,
-                sql_explanation=None,
-                results=json.dumps({"Error": error_msg}),
-                execution_duration=0.0,
-                error=error_msg,
-            )
-
-            # Record in metrics if available
-            metrics = state.get("metrics_collector")
-            if metrics:
-                metrics.record_query_execution(
-                    query_index=idx,
-                    sub_question=analysis["sub_question"],
-                    intent=analysis["intent"],
-                    status="error",
-                    execution_duration=0.0,
-                    error=error_msg,
-                )
-
-        # Remove from remaining indices
-        for idx in state["current_batch"]:
-            if idx in state["remaining_indices"]:
-                state["remaining_indices"].remove(idx)
-
-        # Clear batch
-        state["current_batch"] = []
+        _handle_client_init_error(state, error_msg)
         return state
 
     for idx in state["current_batch"]:
@@ -535,11 +536,10 @@ def execute_summary_search_node(state: GraphState) -> GraphState:
     """
     Execute summary search queries in current batch (placeholder).
     """
-    logger.info("=" * 80)
+
     logger.info(
         f"NODE: Execute Summary Searches (Batch: {len(state['current_batch'])})"
     )
-    logger.info("=" * 80)
 
     # Track which indices we process
     processed_indices = []
@@ -604,9 +604,8 @@ def generate_final_summary_node(
     Generate final summary combining all query results.
     Uses LLM to create narrative summary with optional tables.
     """
-    logger.info("=" * 80)
+
     logger.info("NODE: Generate Final Summary")
-    logger.info("=" * 80)
 
     try:
         llm_client = AzureOpenAI(
@@ -677,9 +676,8 @@ def finalize_results_node(state: GraphState) -> GraphState:
     """
     Finalize and organize all results.
     """
-    logger.info("=" * 80)
+
     logger.info("NODE: Finalize Results")
-    logger.info("=" * 80)
 
     # Build final results in original order
     state["final_results"] = []

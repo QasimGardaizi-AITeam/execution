@@ -196,9 +196,8 @@ class MetricsCollector:
         """Log metrics summary"""
         summary = self.get_summary()
 
-        logger.info("=" * 80)
         logger.info("PIPELINE EXECUTION METRICS SUMMARY")
-        logger.info("=" * 80)
+
         logger.info(f"Total Duration: {summary['total_duration']:.2f}s")
         logger.info(f"Total Queries: {summary['total_queries']}")
         logger.info(
@@ -219,8 +218,6 @@ class MetricsCollector:
 
         if summary["error_count"] > 0:
             logger.warning(f"Errors Encountered: {summary['error_count']}")
-
-        logger.info("=" * 80)
 
 
 class PerformanceMonitor:

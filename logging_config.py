@@ -30,17 +30,18 @@ def redact_sensitive_info(message: str) -> str:
     """
     if not isinstance(message, str):
         return str(message)
+    REDACTION_REPLACEMENT = r"\1***REDACTED***"
 
     patterns = [
         # API keys (various formats)
-        (r'(api[_-]?key["\']?\s*[:=]\s*["\']?)([^\s"\']{20,})', r"\1***REDACTED***"),
+        (r'(api[_-]?key["\']?\s*[:=]\s*["\']?)([^\s"\']{20,})', REDACTION_REPLACEMENT),
         # Azure connection strings
-        (r"(AccountKey=)([^;]+)", r"\1***REDACTED***"),
-        (r"(SharedAccessSignature=)([^;]+)", r"\1***REDACTED***"),
+        (r"(AccountKey=)([^;]+)", REDACTION_REPLACEMENT),
+        (r"(SharedAccessSignature=)([^;]+)", REDACTION_REPLACEMENT),
         # Passwords
-        (r'(password["\']?\s*[:=]\s*["\']?)([^\s"\']+)', r"\1***REDACTED***"),
+        (r'(password["\']?\s*[:=]\s*["\']?)([^\s"\']+)', REDACTION_REPLACEMENT),
         # Tokens
-        (r'(token["\']?\s*[:=]\s*["\']?)([^\s"\']+)', r"\1***REDACTED***"),
+        (r'(token["\']?\s*[:=]\s*["\']?)([^\s"\']+)', REDACTION_REPLACEMENT),
         # Email addresses
         (r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b", r"***EMAIL***"),
     ]

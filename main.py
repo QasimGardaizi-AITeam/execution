@@ -168,9 +168,7 @@ def main():
         # "For each region, which product category has the highest yearly sales (Q1+Q2+Q3+Q4)?",
     ]
     for query in test_queries:
-        logger.info("=" * 80)
         logger.info(f"PROCESSING: {query}")
-        logger.info("=" * 80)
 
         result = process_query(
             user_question=query,
@@ -180,9 +178,8 @@ def main():
             enable_debug=True,
         )
 
-        logger.info("=" * 80)
         logger.info("FINAL RESULTS")
-        logger.info("=" * 80)
+
         print(json.dumps(result, indent=2, default=str))
 
 
