@@ -3,6 +3,7 @@ Utility functions for query processing
 """
 
 import json
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 import duckdb
@@ -13,20 +14,70 @@ from .logging_config import get_logger
 logger = get_logger()
 
 
+def validate_sql_query(query: str) -> None:
+    """
+    Validate SQL query for safety - only allow SELECT operations.
+
+    This prevents SQL injection attacks by ensuring only read-only
+    SELECT queries are executed. Any attempt to modify data or
+    database structure will be rejected.
+
+    Args:
+        query: SQL query string to validate
+
+    Raises:
+        ValueError: If query contains dangerous operations
+    """
+    query_upper = query.upper().strip()
+
+    # Only allow SELECT queries
+    if not query_upper.startswith("SELECT"):
+        raise ValueError("Only SELECT queries are allowed")
+
+    # Block dangerous keywords
+    dangerous_keywords = [
+        "DROP",
+        "DELETE",
+        "TRUNCATE",
+        "ALTER",
+        "CREATE",
+        "INSERT",
+        "UPDATE",
+        "GRANT",
+        "REVOKE",
+        "EXEC",
+        "EXECUTE",
+        "PRAGMA",
+    ]
+
+    for keyword in dangerous_keywords:
+        if re.search(rf"\b{keyword}\b", query_upper):
+            raise ValueError(f"Dangerous SQL operation detected: {keyword}")
+
+    logger.debug("SQL query validation passed")
+
+
 def execute_duckdb_query(query: str, config: Any) -> pd.DataFrame:
     """
     Execute DuckDB query against Azure Blob Storage with proper error handling.
 
     Args:
-        query: SQL query to execute
+        query: SQL query to execute (must be SELECT only)
         config: Configuration object with Azure credentials
 
     Returns:
         DataFrame with query results or error
 
     Security:
-        Uses DuckDB's secure configuration API to prevent SQL injection
+        - Validates query to allow only SELECT operations
+        - Uses proper escaping for connection string
+
+    Raises:
+        ValueError: If query validation fails
     """
+    # SECURITY: Validate query before execution
+    validate_sql_query(query)
+
     try:
         # Use context manager for automatic resource cleanup
         with duckdb.connect() as conn:
@@ -34,12 +85,10 @@ def execute_duckdb_query(query: str, config: Any) -> pd.DataFrame:
             conn.execute("INSTALL azure;")
             conn.execute("LOAD azure;")
 
-            # SECURITY FIX: Use DuckDB's secure configuration API
-            # This prevents SQL injection by properly handling the connection string
-            conn.execute(
-                "SET azure_storage_connection_string=?",
-                [config.azure_storage.connection_string],
-            )
+            # SECURITY FIX: DuckDB doesn't support parameterized SET statements
+            # Use proper escaping instead (single quotes must be doubled)
+            escaped_conn_str = config.azure_storage.connection_string.replace("'", "''")
+            conn.execute(f"SET azure_storage_connection_string='{escaped_conn_str}';")
 
             logger.debug(f"Executing query: {query[:100]}...")
 

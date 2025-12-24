@@ -3,11 +3,61 @@ Centralized logging configuration for pipeline execution
 """
 
 import logging
+import re
 import sys
 import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
+
+
+def redact_sensitive_info(message: str) -> str:
+    """
+    Redact sensitive information from log messages.
+
+    Automatically removes:
+    - API keys
+    - Azure connection strings (AccountKey, SAS tokens)
+    - Passwords
+    - Tokens
+    - Email addresses
+
+    Args:
+        message: Log message to redact
+
+    Returns:
+        Redacted message with sensitive info replaced
+    """
+    if not isinstance(message, str):
+        return str(message)
+
+    patterns = [
+        # API keys (various formats)
+        (r'(api[_-]?key["\']?\s*[:=]\s*["\']?)([^\s"\']{20,})', r"\1***REDACTED***"),
+        # Azure connection strings
+        (r"(AccountKey=)([^;]+)", r"\1***REDACTED***"),
+        (r"(SharedAccessSignature=)([^;]+)", r"\1***REDACTED***"),
+        # Passwords
+        (r'(password["\']?\s*[:=]\s*["\']?)([^\s"\']+)', r"\1***REDACTED***"),
+        # Tokens
+        (r'(token["\']?\s*[:=]\s*["\']?)([^\s"\']+)', r"\1***REDACTED***"),
+        # Email addresses
+        (r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b", r"***EMAIL***"),
+    ]
+
+    for pattern, replacement in patterns:
+        message = re.sub(pattern, replacement, message, flags=re.IGNORECASE)
+
+    return message
+
+
+class RedactingFormatter(logging.Formatter):
+    """Custom formatter that redacts sensitive information from log messages."""
+
+    def format(self, record):
+        """Format the log record and redact sensitive information."""
+        original = super().format(record)
+        return redact_sensitive_info(original)
 
 
 def setup_logging(
@@ -16,7 +66,7 @@ def setup_logging(
     enable_console: bool = True,
 ) -> logging.Logger:
     """
-    Configure logging for the pipeline execution module.
+    Configure logging for the pipeline execution module with PII redaction.
 
     Args:
         log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
@@ -33,8 +83,8 @@ def setup_logging(
     # Remove existing handlers to avoid duplicates
     logger.handlers.clear()
 
-    # Create formatter
-    formatter = logging.Formatter(
+    # Create formatter with PII redaction
+    formatter = RedactingFormatter(
         fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )

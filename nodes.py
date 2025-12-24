@@ -199,7 +199,7 @@ def _log_and_record_result(
         state["executed_results"][idx] = QueryResult(
             sub_question=analysis["sub_question"],
             intent=analysis["intent"],
-            status="error",
+            status=QueryStatus.ERROR.value,
             sql_query=sql_query,
             sql_explanation=explanation,
             results=json.dumps({"Error": error_msg}),
@@ -211,7 +211,7 @@ def _log_and_record_result(
         state["executed_results"][idx] = QueryResult(
             sub_question=analysis["sub_question"],
             intent=analysis["intent"],
-            status="success",
+            status=QueryStatus.SUCCESS.value,
             sql_query=sql_query,
             sql_explanation=explanation,
             results=df_to_json_result(result_df),

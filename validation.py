@@ -9,6 +9,18 @@ from .logging_config import get_logger
 
 logger = get_logger()
 
+# Constants for regex patterns
+CONTROL_CHARS_PATTERN = r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]"
+REDACTED_PLACEHOLDER = r"\1***REDACTED***"
+
+# Sensitive data patterns for redaction
+SENSITIVE_PATTERNS = [
+    (r'(api[_-]?key["\']?\s*[:=]\s*["\']?)([^"\'\}\s]+)', REDACTED_PLACEHOLDER),
+    (r'(password["\']?\s*[:=]\s*["\']?)([^"\'\}\s]+)', REDACTED_PLACEHOLDER),
+    (r'(secret["\']?\s*[:=]\s*["\']?)([^"\'\}\s]+)', REDACTED_PLACEHOLDER),
+    (r'(token["\']?\s*[:=]\s*["\']?)([^"\'\}\s]+)', REDACTED_PLACEHOLDER),
+]
+
 
 class ValidationError(Exception):
     """Raised when input validation fails"""
@@ -47,13 +59,26 @@ def sanitize_user_question(question: str, max_length: int = 1000) -> str:
         question = question[:max_length]
 
     # Remove control characters except newlines and tabs
-    question = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", question)
+    question = re.sub(CONTROL_CHARS_PATTERN, "", question)
 
     # Normalize whitespace
     question = " ".join(question.split())
 
     logger.debug(f"Sanitized question: {question[:100]}...")
     return question
+
+
+def _is_safe_file_name(file_name: str) -> bool:
+    """Check if file name is safe (no path traversal attempts)."""
+    return ".." not in file_name and "/" not in file_name and "\\" not in file_name
+
+
+def _find_file_in_catalog(sanitized_name: str, catalog: Dict[str, Any]) -> bool:
+    """Check if file exists in catalog."""
+    for logical_name, info in catalog.items():
+        if info.get("file_name") == sanitized_name or logical_name == sanitized_name:
+            return True
+    return False
 
 
 def validate_file_names(file_names: List[str], catalog: Dict[str, Any]) -> List[str]:
@@ -91,20 +116,15 @@ def validate_file_names(file_names: List[str], catalog: Dict[str, Any]) -> List[
 
         # Sanitize file name - remove path traversal attempts
         sanitized = file_name.strip()
-        if ".." in sanitized or "/" in sanitized or "\\" in sanitized:
+        if not _is_safe_file_name(sanitized):
             logger.warning(f"Suspicious file name rejected: {file_name}")
             invalid.append(file_name)
             continue
 
         # Check if file exists in catalog
-        found = False
-        for logical_name, info in catalog.items():
-            if info.get("file_name") == sanitized or logical_name == sanitized:
-                validated.append(sanitized)
-                found = True
-                break
-
-        if not found:
+        if _find_file_in_catalog(sanitized, catalog):
+            validated.append(sanitized)
+        else:
             invalid.append(file_name)
 
     if invalid:
@@ -135,7 +155,7 @@ def sanitize_sql_query(query: str, max_length: int = 10000) -> str:
         return ""
 
     # Remove control characters
-    query = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", query)
+    query = re.sub(CONTROL_CHARS_PATTERN, "", query)
 
     # Truncate if too long
     if len(query) > max_length:
@@ -145,6 +165,17 @@ def sanitize_sql_query(query: str, max_length: int = 10000) -> str:
         query = query[:max_length] + "... [truncated]"
 
     return query
+
+
+def _validate_attributes(obj: Any, attrs: List[str], context: str) -> None:
+    """Validate that object has required attributes with non-empty values."""
+    for attr in attrs:
+        if not hasattr(obj, attr):
+            raise ValidationError(f"{context} missing: {attr}")
+
+        value = getattr(obj, attr)
+        if not value or (isinstance(value, str) and not value.strip()):
+            raise ValidationError(f"{context} {attr} is empty")
 
 
 def validate_config_object(config: Any) -> bool:
@@ -160,34 +191,19 @@ def validate_config_object(config: Any) -> bool:
     Raises:
         ValidationError: If validation fails
     """
-    required_attrs = [
-        "azure_openai",
-        "azure_storage",
-    ]
-
+    # Validate top-level attributes
+    required_attrs = ["azure_openai", "azure_storage"]
     for attr in required_attrs:
         if not hasattr(config, attr):
             raise ValidationError(f"Config missing required attribute: {attr}")
 
     # Validate Azure OpenAI config
     openai_attrs = ["llm_api_key", "llm_endpoint", "llm_deployment_name"]
-    for attr in openai_attrs:
-        if not hasattr(config.azure_openai, attr):
-            raise ValidationError(f"Azure OpenAI config missing: {attr}")
-
-        value = getattr(config.azure_openai, attr)
-        if not value or (isinstance(value, str) and not value.strip()):
-            raise ValidationError(f"Azure OpenAI config {attr} is empty")
+    _validate_attributes(config.azure_openai, openai_attrs, "Azure OpenAI config")
 
     # Validate Azure Storage config
     storage_attrs = ["connection_string", "account_name", "container_name"]
-    for attr in storage_attrs:
-        if not hasattr(config.azure_storage, attr):
-            raise ValidationError(f"Azure Storage config missing: {attr}")
-
-        value = getattr(config.azure_storage, attr)
-        if not value or (isinstance(value, str) and not value.strip()):
-            raise ValidationError(f"Azure Storage config {attr} is empty")
+    _validate_attributes(config.azure_storage, storage_attrs, "Azure Storage config")
 
     logger.debug("Configuration validation passed")
     return True
@@ -207,22 +223,15 @@ def sanitize_error_message(error: Exception, max_length: int = 500) -> str:
     message = str(error)
 
     # Remove control characters
-    message = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", message)
+    message = re.sub(CONTROL_CHARS_PATTERN, "", message)
 
     # Truncate if too long
     if len(message) > max_length:
         message = message[:max_length] + "... [truncated]"
 
-    # Remove potential sensitive information patterns
-    # (API keys, connection strings, etc.)
-    patterns = [
-        (r'(api[_-]?key["\']?\s*[:=]\s*["\']?)([^"\'}\s]+)', r"\1***REDACTED***"),
-        (r'(password["\']?\s*[:=]\s*["\']?)([^"\'}\s]+)', r"\1***REDACTED***"),
-        (r'(secret["\']?\s*[:=]\s*["\']?)([^"\'}\s]+)', r"\1***REDACTED***"),
-        (r'(token["\']?\s*[:=]\s*["\']?)([^"\'}\s]+)', r"\1***REDACTED***"),
-    ]
+    # Remove potential sensitive information patterns using predefined patterns
 
-    for pattern, replacement in patterns:
+    for pattern, replacement in SENSITIVE_PATTERNS:
         message = re.sub(pattern, replacement, message, flags=re.IGNORECASE)
 
     return message
