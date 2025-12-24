@@ -7,23 +7,46 @@ from typing import Any, Dict, List, Optional, TypedDict
 from langgraph.graph import add_messages
 from typing_extensions import Annotated
 
+from .enums import GraphStatus, IntentType, QueryStatus
+
 
 class QueryAnalysis(TypedDict):
-    """Single query analysis"""
+    """
+    Single query analysis result.
+
+    Attributes:
+        sub_question: The decomposed sub-question to be executed
+        intent: Type of query (SQL_QUERY or SUMMARY_SEARCH)
+        required_files: List of file names required for this query
+        join_key: Column name for joining multiple files (if applicable)
+        depends_on_index: Index of the query this depends on (-1 if independent)
+    """
 
     sub_question: str
-    intent: str  # "SQL_QUERY" or "SUMMARY_SEARCH"
+    intent: IntentType
     required_files: List[str]
     join_key: str
-    depends_on_index: int
+    depends_on_index: int  # -1 indicates no dependency, >= 0 indicates dependency index
 
 
 class QueryResult(TypedDict):
-    """Result of a single query execution"""
+    """
+    Result of a single query execution.
+
+    Attributes:
+        sub_question: The sub-question that was executed
+        intent: Type of query (SQL_QUERY or SUMMARY_SEARCH)
+        status: Execution status (success, error, or placeholder)
+        sql_query: Generated SQL query (None for non-SQL queries)
+        sql_explanation: Explanation of the SQL query
+        results: JSON string of query results
+        execution_duration: Time taken to execute in seconds
+        error: Error message if execution failed
+    """
 
     sub_question: str
-    intent: str
-    status: str  # "success", "error", "placeholder"
+    intent: IntentType
+    status: QueryStatus
     sql_query: Optional[str]
     sql_explanation: Optional[str]
     results: str
@@ -41,32 +64,37 @@ class FinalSummary(TypedDict):
 
 
 class GraphState(TypedDict):
-    """Main state for the LangGraph workflow"""
+    """
+    Main state for the LangGraph workflow.
 
-    # Input
-    user_question: str
-    config: Any
-    global_catalog_dict: Dict[str, Any]
-    catalog_schema: str
-    enable_debug: bool
+    This state is passed through all nodes in the graph and accumulates
+    information about query analysis, execution, and results.
+    """
 
-    # Analysis
-    analyses: List[QueryAnalysis]
-    total_questions: int
-    independent_count: int
-    dependent_count: int
+    # Input fields
+    user_question: str  # Original user question
+    config: Any  # Application configuration object
+    global_catalog_dict: Dict[str, Any]  # Catalog of available data files
+    catalog_schema: str  # JSON schema of the catalog
+    enable_debug: bool  # Whether to enable debug logging
+
+    # Analysis results
+    analyses: List[QueryAnalysis]  # List of decomposed sub-questions
+    total_questions: int  # Total number of sub-questions
+    independent_count: int  # Number of independent queries
+    dependent_count: int  # Number of dependent queries
 
     # Execution tracking
-    executed_results: Dict[int, QueryResult]
-    remaining_indices: List[int]
-    current_batch: List[int]
+    executed_results: Dict[int, QueryResult]  # Results indexed by query number
+    remaining_indices: List[int]  # Indices of queries not yet executed
+    current_batch: List[int]  # Indices of queries in current execution batch
 
-    # Results
-    final_results: List[QueryResult]
-    total_duration: float
-    status: str  # "success", "partial_success", "error"
-    error: Optional[str]
-    final_summary: Optional[FinalSummary]
+    # Final results
+    final_results: List[QueryResult]  # All results in original order
+    total_duration: float  # Total execution time in seconds
+    status: GraphStatus  # Overall execution status
+    error: Optional[str]  # Error message if execution failed
+    final_summary: Optional[FinalSummary]  # Generated summary of all results
 
-    # Messages for debugging
-    messages: Annotated[List[str], add_messages]
+    # Debugging and logging
+    messages: Annotated[List[str], add_messages]  # Log messages

@@ -7,6 +7,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from openai import AzureOpenAI
 
+from .logging_config import get_logger, log_llm_call, track_execution_time
+
+logger = get_logger()
+
 
 def analyze_query_chain(
     llm_client: AzureOpenAI,
@@ -100,17 +104,25 @@ You are an expert query analyzer. Analyze the user's question and provide struct
 """
 
     try:
-        response = llm_client.chat.completions.create(
-            model=deployment_name,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": f"Analyze: {user_question}"},
-            ],
-            tools=[UNIFIED_TOOL_SPEC],
-            tool_choice={"type": "function", "function": {"name": "analyze_query"}},
-            temperature=0.0,
-            timeout=30,
-        )
+        with track_execution_time("Query Analysis LLM Call", logger) as timing:
+            response = llm_client.chat.completions.create(
+                model=deployment_name,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": f"Analyze: {user_question}"},
+                ],
+                tools=[UNIFIED_TOOL_SPEC],
+                tool_choice={"type": "function", "function": {"name": "analyze_query"}},
+                temperature=0.0,
+                timeout=30,
+            )
+
+        # SECURITY FIX: Validate tool_calls exists before accessing
+        if not response.choices or not response.choices[0].message.tool_calls:
+            logger.error("LLM response missing tool_calls")
+            raise ValueError(
+                "No tool calls in LLM response. The model may not have followed instructions."
+            )
 
         tool_call = response.choices[0].message.tool_calls[0]
         args = json.loads(tool_call.function.arguments)
@@ -122,14 +134,28 @@ You are an expert query analyzer. Analyze the user's question and provide struct
                 "completion_tokens": response.usage.completion_tokens,
                 "total_tokens": response.usage.total_tokens,
             }
+            log_llm_call(
+                logger,
+                deployment_name,
+                response.usage.prompt_tokens,
+                response.usage.completion_tokens,
+                response.usage.total_tokens,
+                timing["duration"],
+            )
 
+        logger.info(
+            f"Analyzed query into {len(args.get('analyses', []))} sub-questions"
+        )
         return args["analyses"], usage
 
     except json.JSONDecodeError as e:
+        logger.error(f"Invalid JSON response from LLM: {e}")
         raise ValueError(f"Invalid JSON response from LLM: {e}")
     except KeyError as e:
+        logger.error(f"Missing required field in LLM response: {e}")
         raise ValueError(f"Missing required field in LLM response: {e}")
     except Exception as e:
+        logger.error(f"Query analysis failed: {e}", exc_info=True)
         raise RuntimeError(f"Query analysis failed: {e}")
 
 
@@ -141,7 +167,7 @@ def generate_sql_chain(
     df_sample: str,
     path_map: Dict[str, str],
     semantic_context: str = "",
-    error_message: str = None,  # <--- ADDED: Error message for self-healing
+    error_message: Optional[str] = None,  # TYPE FIX: Added Optional
 ) -> Tuple[str, str]:
     """
     Generate SQL query using LLM.
@@ -231,13 +257,14 @@ Return valid JSON:
 """
 
     try:
-        response = llm_client.chat.completions.create(
-            model=deployment_name,
-            messages=[{"role": "user", "content": sql_prompt}],
-            temperature=0.0,
-            response_format={"type": "json_object"},
-            timeout=30,
-        )
+        with track_execution_time("SQL Generation LLM Call", logger) as timing:
+            response = llm_client.chat.completions.create(
+                model=deployment_name,
+                messages=[{"role": "user", "content": sql_prompt}],
+                temperature=0.0,
+                response_format={"type": "json_object"},
+                timeout=30,
+            )
 
         result = json.loads(response.choices[0].message.content.strip())
 
@@ -245,13 +272,28 @@ Return valid JSON:
         explanation = result.get("explanation", "")
 
         if not sql_query:
+            logger.error("LLM generated empty SQL query")
             raise ValueError("Empty SQL query generated")
 
+        # Log token usage if available
+        if response.usage:
+            log_llm_call(
+                logger,
+                deployment_name,
+                response.usage.prompt_tokens,
+                response.usage.completion_tokens,
+                response.usage.total_tokens,
+                timing["duration"],
+            )
+
+        logger.debug(f"Generated SQL query: {sql_query[:100]}...")
         return sql_query, explanation
 
     except json.JSONDecodeError as e:
+        logger.error(f"Invalid JSON response: {e}")
         raise ValueError(f"Invalid JSON response: {e}")
     except Exception as e:
+        logger.error(f"SQL generation failed: {e}", exc_info=True)
         raise RuntimeError(f"SQL generation failed: {e}")
 
 
@@ -334,13 +376,14 @@ You are an expert data analyst. Generate a comprehensive summary of query result
 """
 
     try:
-        response = llm_client.chat.completions.create(
-            model=deployment_name,
-            messages=[{"role": "user", "content": summary_prompt}],
-            temperature=0.3,
-            response_format={"type": "json_object"},
-            timeout=60,
-        )
+        with track_execution_time("Summary Generation LLM Call", logger) as timing:
+            response = llm_client.chat.completions.create(
+                model=deployment_name,
+                messages=[{"role": "user", "content": summary_prompt}],
+                temperature=0.3,
+                response_format={"type": "json_object"},
+                timeout=60,
+            )
 
         result = json.loads(response.choices[0].message.content.strip())
 
@@ -351,9 +394,23 @@ You are an expert data analyst. Generate a comprehensive summary of query result
             "tables": result.get("tables", []),
         }
 
+        # Log token usage if available
+        if response.usage:
+            log_llm_call(
+                logger,
+                deployment_name,
+                response.usage.prompt_tokens,
+                response.usage.completion_tokens,
+                response.usage.total_tokens,
+                timing["duration"],
+            )
+
+        logger.info(f"Generated summary with {len(summary_result['tables'])} tables")
         return summary_result
 
     except json.JSONDecodeError as e:
+        logger.error(f"Invalid JSON response: {e}")
         raise ValueError(f"Invalid JSON response: {e}")
     except Exception as e:
+        logger.error(f"Summary generation failed: {e}", exc_info=True)
         raise RuntimeError(f"Summary generation failed: {e}")

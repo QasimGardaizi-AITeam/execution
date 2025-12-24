@@ -3,10 +3,14 @@ Utility functions for query processing
 """
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import duckdb
 import pandas as pd
+
+from .logging_config import get_logger
+
+logger = get_logger()
 
 
 def execute_duckdb_query(query: str, config: Any) -> pd.DataFrame:
@@ -19,68 +23,91 @@ def execute_duckdb_query(query: str, config: Any) -> pd.DataFrame:
 
     Returns:
         DataFrame with query results or error
+
+    Security:
+        Uses DuckDB's secure configuration API to prevent SQL injection
     """
-    conn = None
     try:
-        conn = duckdb.connect()
+        # Use context manager for automatic resource cleanup
+        with duckdb.connect() as conn:
+            # Install and load Azure extension
+            conn.execute("INSTALL azure;")
+            conn.execute("LOAD azure;")
 
-        # Install and load Azure extension
-        conn.execute("INSTALL azure;")
-        conn.execute("LOAD azure;")
+            # SECURITY FIX: Use DuckDB's secure configuration API
+            # This prevents SQL injection by properly handling the connection string
+            conn.execute(
+                "SET azure_storage_connection_string=?",
+                [config.azure_storage.connection_string],
+            )
 
-        # Set Azure connection string
-        escaped_conn_str = config.azure_storage.connection_string.replace("'", "''")
-        conn.execute(f"SET azure_storage_connection_string='{escaped_conn_str}';")
+            logger.debug(f"Executing query: {query[:100]}...")
 
-        # Execute the query with timeout
-        result_df = conn.execute(query).fetchdf()
+            # Execute the query
+            result_df = conn.execute(query).fetchdf()
 
-        if result_df is None or result_df.empty:
-            return pd.DataFrame({"message": ["No results returned"]})
+            if result_df is None or result_df.empty:
+                logger.info("Query returned no results")
+                return pd.DataFrame({"message": ["No results returned"]})
 
-        return result_df
+            logger.info(f"Query returned {len(result_df)} rows")
+            return result_df
 
     except duckdb.CatalogException as e:
         error_msg = f"Catalog error: {str(e)}"
+        logger.error(error_msg)
         return pd.DataFrame({"Error": [error_msg]})
     except duckdb.ParserException as e:
         error_msg = f"SQL syntax error: {str(e)}"
+        logger.error(error_msg)
         return pd.DataFrame({"Error": [error_msg]})
     except duckdb.IOException as e:
         error_msg = f"IO error accessing files: {str(e)}"
+        logger.error(error_msg)
         return pd.DataFrame({"Error": [error_msg]})
     except Exception as e:
         error_msg = f"Unexpected error: {str(e)}"
+        logger.error(error_msg, exc_info=True)
         return pd.DataFrame({"Error": [error_msg]})
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 
 def read_top_rows_duckdb(uri: str, config: Any) -> str:
     """
     Reads the top 5 rows from a Parquet file at a given URI using DuckDB
     and formats the result as a Markdown table string.
+
+    Args:
+        uri: Azure URI of the parquet file
+        config: Configuration object with Azure credentials
+
+    Returns:
+        Markdown formatted table string or error message
     """
     try:
+        logger.debug(f"Reading sample rows from: {uri}")
+
         # Construct the DuckDB query to read the file and limit rows
         sql_query = f"SELECT * FROM read_parquet('{uri}') LIMIT 5"
 
-        # NOTE: This assumes 'execute_duckdb_query' is available and handles
-        # connection and configuration (like Azure credentials)
         result_df: pd.DataFrame = execute_duckdb_query(sql_query, config)
 
+        # Check for errors in the result
+        if "Error" in result_df.columns:
+            error_msg = result_df["Error"].iloc[0]
+            logger.warning(f"Error reading sample data: {error_msg}")
+            return f"Error: {error_msg}"
+
         if result_df.empty:
+            logger.info("No sample rows found")
             return "No sample rows found."
 
         # Format the DataFrame as a clean Markdown table for the LLM
         return result_df.to_markdown(index=False)
 
     except Exception as e:
-        return f"Error fetching sample data: {str(e)}"
+        error_msg = f"Error fetching sample data: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        return error_msg
 
 
 def df_to_json_result(df: pd.DataFrame) -> str:
@@ -230,7 +257,7 @@ def build_path_mapping(
     return path_map
 
 
-def validate_state(state: Dict[str, Any]) -> tuple[bool, Optional[str]]:
+def validate_state(state: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
     """
     Validate state has required fields.
 
@@ -249,6 +276,8 @@ def validate_state(state: Dict[str, Any]) -> tuple[bool, Optional[str]]:
 
     for field in required_fields:
         if field not in state or state[field] is None:
+            logger.error(f"State validation failed: missing field '{field}'")
             return False, f"Missing required field: {field}"
 
+    logger.debug("State validation passed")
     return True, None

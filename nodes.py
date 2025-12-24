@@ -14,6 +14,8 @@ from .chains import (
     generate_final_summary_chain,
     generate_sql_chain,
 )
+from .enums import IntentType, QueryStatus
+from .logging_config import get_logger, log_query_execution
 from .state import GraphState, QueryAnalysis, QueryResult
 from .tools import (
     build_path_mapping,
@@ -24,6 +26,8 @@ from .tools import (
     validate_state,
 )
 
+logger = get_logger()
+
 
 class SqlExecutionError(Exception):
     """Custom exception raised when DuckDB returns an error DataFrame indicating a failed execution."""
@@ -31,11 +35,7 @@ class SqlExecutionError(Exception):
     pass
 
 
-# ===========================================================================
 # HELPER FUNCTIONS FOR execute_sql_query_node
-# ===========================================================================
-
-
 def _get_dependency_result(
     state: GraphState, analysis: QueryAnalysis, attempt: int
 ) -> str:
@@ -45,10 +45,10 @@ def _get_dependency_result(
 
     if dep_idx >= 0:
         dep_result = state["executed_results"].get(dep_idx)
-        if dep_result and dep_result["status"] == "success":
+        if dep_result and dep_result["status"] == QueryStatus.SUCCESS:
             dependency_result = dep_result["results"]
             if attempt == 0 or state["enable_debug"]:
-                print(f"→ Using result from Q{dep_idx + 1}")
+                logger.info(f"Using result from Q{dep_idx + 1}")
     return dependency_result
 
 
@@ -61,12 +61,17 @@ def _get_dynamic_sample_data(
     if not path_map:
         return df_sample
 
+    # SECURITY FIX: Validate required_files list before accessing
+    if not analysis["required_files"]:
+        logger.warning("No files specified in required_files")
+        return "No files specified for analysis."
+
     # Identify the first file and its URI
     first_file_name = analysis["required_files"][0]
     first_uri = path_map.get(first_file_name) or list(path_map.values())[0]
 
     if attempt == 0 or state["enable_debug"]:
-        print(f"Reading sample data from: {first_uri}")
+        logger.debug(f"Reading sample data from: {first_uri}")
 
     # Read the data using the utility function
     df_sample_markdown = read_top_rows_duckdb(first_uri, state["config"])
@@ -75,7 +80,7 @@ def _get_dynamic_sample_data(
         f"--- Actual Sample Rows from '{first_file_name}' ---\n" + df_sample_markdown
     )
     if attempt == 0 or state["enable_debug"]:
-        print("[SAMPLE] Successfully read sample rows.")
+        logger.debug("Successfully read sample rows")
 
     return df_sample
 
@@ -101,8 +106,6 @@ def _get_query_context(
     # 4. Dynamic sample data logic (Refactored to helper)
     df_sample = _get_dynamic_sample_data(state, analysis, path_map, attempt)
 
-    # The original function signature was missing the return type for parquet_schema (str),
-    # corrected it to match the actual return and logic
     return dependency_result, path_map, df_sample, parquet_schema
 
 
@@ -125,8 +128,8 @@ def _run_query_with_self_healing(
 
         try:
             if attempt > 0:
-                print(
-                    f"--- FAILED. ATTEMPTING SELF-HEALING FALLBACK (Try {attempt + 1}/{max_attempts}) ---"
+                logger.warning(
+                    f"FAILED. ATTEMPTING SELF-HEALING FALLBACK (Try {attempt + 1}/{max_attempts})"
                 )
 
             # 1. Prepare context for LLM
@@ -146,8 +149,8 @@ def _run_query_with_self_healing(
                 error_message=previous_error_msg,
             )
 
-            print(f"[SQL] {current_sql_query}")
-            print(f"[EXPLANATION] {current_explanation}")
+            logger.info(f"Generated SQL: {current_sql_query[:100]}...")
+            logger.debug(f"Explanation: {current_explanation}")
 
             # 3. Execute query
             result_df = execute_duckdb_query(current_sql_query, state["config"])
@@ -170,11 +173,11 @@ def _run_query_with_self_healing(
             error_msg = previous_error_msg
 
             if attempt == max_attempts - 1:
-                print(
-                    f"[FINAL ERROR] Failed after {max_attempts} attempts: {error_msg}"
+                logger.error(
+                    f"FINAL ERROR: Failed after {max_attempts} attempts: {error_msg}"
                 )
             else:
-                print(f"[ERROR] Attempt {attempt + 1} failed: {error_msg}")
+                logger.warning(f"Attempt {attempt + 1} failed: {error_msg}")
 
     return sql_query, explanation, result_df, error_msg
 
