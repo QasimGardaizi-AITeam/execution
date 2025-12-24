@@ -4,8 +4,9 @@ LangGraph nodes for query processing workflow
 
 import json
 import time
-from typing import Any, Dict
+from typing import Any, Dict, Optional, Tuple
 
+import pandas as pd  # <-- Added missing import
 from openai import AzureOpenAI
 
 from .chains import (
@@ -22,6 +23,183 @@ from .tools import (
     read_top_rows_duckdb,
     validate_state,
 )
+
+
+class SqlExecutionError(Exception):
+    """Custom exception raised when DuckDB returns an error DataFrame indicating a failed execution."""
+
+    pass
+
+
+# ===========================================================================
+# HELPER FUNCTIONS FOR execute_sql_query_node
+# ===========================================================================
+
+
+def _get_query_context(
+    state: GraphState, analysis: QueryAnalysis, attempt: int
+) -> Tuple[str, Dict[str, str], str]:
+    """Prepares all necessary context for SQL generation."""
+
+    # 1. Get dependency result
+    dependency_result = ""
+    if analysis["depends_on_index"] >= 0:
+        dep_result = state["executed_results"].get(analysis["depends_on_index"])
+        if dep_result and dep_result["status"] == "success":
+            dependency_result = dep_result["results"]
+            if attempt == 0 or state["enable_debug"]:
+                print(f"→ Using result from Q{analysis['depends_on_index'] + 1}")
+
+    # 2. Extract schema
+    parquet_schema, _ = extract_schema_from_catalog(
+        analysis["required_files"], state["global_catalog_dict"]
+    )
+
+    # 3. Build path map
+    path_map = build_path_mapping(
+        analysis["required_files"], state["global_catalog_dict"]
+    )
+
+    # 4. Dynamic sample data logic
+    df_sample = "No sample data available or required."
+    if path_map:
+        first_file_name = analysis["required_files"][0]
+        first_uri = path_map.get(first_file_name) or list(path_map.values())[0]
+
+        if attempt == 0 or state["enable_debug"]:
+            print(f"Reading sample data from: {first_uri}")
+
+        df_sample_markdown = read_top_rows_duckdb(first_uri, state["config"])
+
+        df_sample = (
+            f"--- Actual Sample Rows from '{first_file_name}' ---\n"
+            + df_sample_markdown
+        )
+        if attempt == 0 or state["enable_debug"]:
+            print("[SAMPLE] Successfully read sample rows.")
+
+    return dependency_result, path_map, df_sample, parquet_schema
+
+
+def _run_query_with_self_healing(
+    llm_client: AzureOpenAI, state: GraphState, analysis: QueryAnalysis
+) -> Tuple[Optional[str], Optional[str], Optional[pd.DataFrame], Optional[str]]:
+    """Executes the SQL generation and retry loop."""
+
+    sql_query = None
+    explanation = None
+    result_df = None
+    previous_error_msg = None
+    error_msg = None
+    max_attempts = 2
+
+    for attempt in range(max_attempts):
+
+        current_sql_query = None
+        current_explanation = None
+
+        try:
+            if attempt > 0:
+                print(
+                    f"--- FAILED. ATTEMPTING SELF-HEALING FALLBACK (Try {attempt + 1}/{max_attempts}) ---"
+                )
+
+            # 1. Prepare context for LLM
+            dependency_result, path_map, df_sample, parquet_schema = _get_query_context(
+                state, analysis, attempt
+            )
+
+            # 2. Generate SQL (passes error for self-healing)
+            current_sql_query, current_explanation = generate_sql_chain(
+                llm_client=llm_client,
+                deployment_name=state["config"].azure_openai.llm_deployment_name,
+                user_query=analysis["sub_question"],
+                parquet_schema=parquet_schema,
+                df_sample=df_sample,
+                path_map=path_map,
+                semantic_context=dependency_result,
+                error_message=previous_error_msg,
+            )
+
+            print(f"[SQL] {current_sql_query}")
+            print(f"[EXPLANATION] {current_explanation}")
+
+            # 3. Execute query
+            result_df = execute_duckdb_query(current_sql_query, state["config"])
+
+            # 4. Check for execution errors (DuckDB returns a DataFrame with an 'Error' column)
+            if "Error" in result_df.columns:
+                current_error_msg = result_df["Error"].iloc[0]
+                raise SqlExecutionError(f"DuckDB Execution Error: {current_error_msg}")
+
+            # If successful, assign final values and break the retry loop
+            sql_query = current_sql_query
+            explanation = current_explanation
+            error_msg = None
+            break
+
+        except Exception as e:
+            previous_error_msg = str(e)
+            sql_query = current_sql_query
+            explanation = current_explanation
+            error_msg = previous_error_msg
+
+            if attempt == max_attempts - 1:
+                print(
+                    f"[FINAL ERROR] Failed after {max_attempts} attempts: {error_msg}"
+                )
+            else:
+                print(f"[ERROR] Attempt {attempt + 1} failed: {error_msg}")
+
+    return sql_query, explanation, result_df, error_msg
+
+
+def _log_and_record_result(
+    state: GraphState,
+    idx: int,
+    analysis: QueryAnalysis,
+    sql_query: Optional[str],
+    explanation: Optional[str],
+    result_df: Optional[pd.DataFrame],
+    error_msg: Optional[str],
+    execution_duration: float,
+) -> None:
+    """Logs the final result and records it in the state."""
+
+    if error_msg:
+        # Final failure case
+        state["executed_results"][idx] = QueryResult(
+            sub_question=analysis["sub_question"],
+            intent=analysis["intent"],
+            status="error",
+            sql_query=sql_query,
+            sql_explanation=explanation,
+            results=json.dumps({"Error": error_msg}),
+            execution_duration=execution_duration,
+            error=error_msg,
+        )
+    elif result_df is not None:
+        # Final success case
+        state["executed_results"][idx] = QueryResult(
+            sub_question=analysis["sub_question"],
+            intent=analysis["intent"],
+            status="success",
+            sql_query=sql_query,
+            sql_explanation=explanation,
+            results=df_to_json_result(result_df),
+            execution_duration=execution_duration,
+            error=None,
+        )
+        print(f"[SUCCESS] Executed in {execution_duration:.2f}s")
+        print(f"[RESULTS] {result_df.shape[0]} rows x {result_df.shape[1]} cols")
+
+        if state["enable_debug"] and not result_df.empty:
+            print("\n" + result_df.head(5).to_markdown(index=False))
+
+
+# ===========================================================================
+# REFACTORED NODE FUNCTIONS
+# ===========================================================================
 
 
 def validate_input_node(state: GraphState) -> GraphState:
@@ -226,156 +404,24 @@ def execute_sql_query_node(state: GraphState) -> GraphState:
 
         start_time = time.time()
 
-        # --- SELF-HEALING FALLBACK MECHANISM START ---
-
-        sql_query = None
-        explanation = None
-        result_df = None
-        error_msg = None
-
-        # Track the error from the previous attempt for self-healing
-        previous_error_msg = None
-
-        # Max 2 attempts: 1 original attempt + 1 self-healing fallback
-        max_attempts = 2
-
-        for attempt in range(max_attempts):
-
-            current_sql_query = None
-            current_explanation = None
-            current_error_msg = None
-
-            try:
-                if attempt > 0:
-                    print(
-                        f"--- FAILED. ATTEMPTING SELF-HEALING FALLBACK (Try {attempt + 1}/{max_attempts}) ---"
-                    )
-                    # previous_error_msg will be passed to generate_sql_chain below
-
-                # 1. Get dependency result if needed
-                dependency_result = ""
-                if analysis["depends_on_index"] >= 0:
-                    dep_result = state["executed_results"].get(
-                        analysis["depends_on_index"]
-                    )
-                    if dep_result and dep_result["status"] == "success":
-                        dependency_result = dep_result["results"]
-                        if attempt == 0 or state["enable_debug"]:
-                            print(
-                                f"→ Using result from Q{analysis['depends_on_index'] + 1}"
-                            )
-
-                # 2. Extract schema
-                parquet_schema, _ = extract_schema_from_catalog(
-                    analysis["required_files"], state["global_catalog_dict"]
-                )
-
-                # 3. Build path map
-                path_map = build_path_mapping(
-                    analysis["required_files"], state["global_catalog_dict"]
-                )
-
-                # 4. Dynamic sample data logic
-                df_sample = "No sample data available or required."
-                if path_map:
-                    first_file_name = analysis["required_files"][0]
-                    first_uri = (
-                        path_map.get(first_file_name) or list(path_map.values())[0]
-                    )
-
-                    if attempt == 0 or state["enable_debug"]:
-                        print(f"Reading sample data from: {first_uri}")
-
-                    df_sample_markdown = read_top_rows_duckdb(
-                        first_uri, state["config"]
-                    )
-
-                    df_sample = (
-                        f"--- Actual Sample Rows from '{first_file_name}' ---\n"
-                        + df_sample_markdown
-                    )
-                    if attempt == 0 or state["enable_debug"]:
-                        print(f"[SAMPLE] Successfully read sample rows.")
-
-                # 5. Generate SQL
-                current_sql_query, current_explanation = generate_sql_chain(
-                    llm_client=llm_client,
-                    deployment_name=state["config"].azure_openai.llm_deployment_name,
-                    user_query=analysis["sub_question"],
-                    parquet_schema=parquet_schema,
-                    df_sample=df_sample,
-                    path_map=path_map,
-                    semantic_context=dependency_result,
-                    error_message=previous_error_msg,  # <--- PASS ERROR FOR SELF-HEALING
-                )
-
-                print(f"[SQL] {current_sql_query}")
-                print(f"[EXPLANATION] {current_explanation}")
-
-                # 6. Execute query
-                result_df = execute_duckdb_query(current_sql_query, state["config"])
-
-                # Check for execution errors (DuckDB returns a DataFrame with an 'Error' column)
-                if "Error" in result_df.columns:
-                    current_error_msg = result_df["Error"].iloc[0]
-                    # This raises an exception to trigger the next attempt or final failure
-                    raise Exception(f"DuckDB Execution Error: {current_error_msg}")
-
-                # If successful, assign final values and break the retry loop
-                sql_query = current_sql_query
-                explanation = current_explanation
-                error_msg = None  # Clear any previous error
-                break
-
-            except Exception as e:
-                # Store the error from this attempt to feed back to the LLM on the next attempt
-                previous_error_msg = str(e)
-                # Store the SQL/Explanation that failed for final logging if max_attempts is reached
-                sql_query = current_sql_query
-                explanation = current_explanation
-                error_msg = previous_error_msg
-
-                if attempt == max_attempts - 1:
-                    print(
-                        f"[FINAL ERROR] Failed after {max_attempts} attempts: {error_msg}"
-                    )
-                else:
-                    print(f"[ERROR] Attempt {attempt + 1} failed: {error_msg}")
-
-        # --- SELF-HEALING FALLBACK MECHANISM END ---
+        # Execute query with self-healing attempts
+        sql_query, explanation, result_df, error_msg = _run_query_with_self_healing(
+            llm_client, state, analysis
+        )
 
         execution_duration = time.time() - start_time
 
-        # Process result after retry loop
-        if error_msg:
-            # Final failure case
-            state["executed_results"][idx] = QueryResult(
-                sub_question=analysis["sub_question"],
-                intent=analysis["intent"],
-                status="error",
-                sql_query=sql_query,
-                sql_explanation=explanation,
-                results=json.dumps({"Error": error_msg}),
-                execution_duration=execution_duration,
-                error=error_msg,
-            )
-        elif result_df is not None:
-            # Final success case
-            state["executed_results"][idx] = QueryResult(
-                sub_question=analysis["sub_question"],
-                intent=analysis["intent"],
-                status="success",
-                sql_query=sql_query,
-                sql_explanation=explanation,
-                results=df_to_json_result(result_df),
-                execution_duration=execution_duration,
-                error=None,
-            )
-            print(f"[SUCCESS] Executed in {execution_duration:.2f}s")
-            print(f"[RESULTS] {result_df.shape[0]} rows x {result_df.shape[1]} cols")
-
-            if state["enable_debug"] and not result_df.empty:
-                print("\n" + result_df.head(5).to_markdown(index=False))
+        # Log and record the final result (success or error)
+        _log_and_record_result(
+            state,
+            idx,
+            analysis,
+            sql_query,
+            explanation,
+            result_df,
+            error_msg,
+            execution_duration,
+        )
 
     # Remove processed indices from remaining
     for idx in processed_indices:
@@ -436,7 +482,7 @@ def execute_summary_search_node(state: GraphState) -> GraphState:
             error=None,
         )
 
-        print(f"[PLACEHOLDER] Marked as complete")
+        print("[PLACEHOLDER] Marked as complete")
 
     # Remove processed indices from remaining
     for idx in processed_indices:
@@ -451,7 +497,7 @@ def execute_summary_search_node(state: GraphState) -> GraphState:
 
 def generate_final_summary_node(
     state: GraphState,
-) -> Dict[str, Any]:  # Note: Function return type is changed
+) -> Dict[str, Any]:
     """
     Generate final summary combining all query results.
     Uses LLM to create narrative summary with optional tables.
@@ -492,9 +538,7 @@ def generate_final_summary_node(
             query_results=successful_results,
         )
 
-        # state["final_summary"] = summary_result # OLD: Mutating state directly
-
-        print(f"[SUCCESS] Generated final summary")
+        print("[SUCCESS] Generated final summary")
         print(f"Has tables: {summary_result['has_tables']}")
         print(f"Number of tables: {len(summary_result['tables'])}")
 
@@ -515,9 +559,6 @@ def generate_final_summary_node(
         import traceback
 
         print(f"[ERROR] Traceback: {traceback.format_exc()}")
-
-        # Provide fallback summary
-        # state["final_summary"] = { ... } # OLD: Mutating state directly
 
         # --- CHANGE 3: Return explicit update on error ---
         return {
@@ -594,4 +635,5 @@ def should_continue_execution(state: GraphState) -> str:
     if state["remaining_indices"]:
         return "continue"
     else:
+        return "finalize"
         return "finalize"

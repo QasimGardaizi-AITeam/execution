@@ -101,6 +101,71 @@ def df_to_json_result(df: pd.DataFrame) -> str:
         return json.dumps({"Error": f"Failed to serialize results: {str(e)}"})
 
 
+# ===========================================================================
+# HELPER FUNCTIONS FOR SCHEMA EXTRACTION
+# ===========================================================================
+
+
+def _find_file_info(
+    file_name: str, global_catalog_dict: Dict[str, Any]
+) -> Optional[Dict[str, Any]]:
+    """Finds file metadata by logical name or file_name."""
+    for logical_name, info in global_catalog_dict.items():
+        if info.get("file_name") == file_name or logical_name == file_name:
+            return info
+    return None
+
+
+def _format_file_schema(file_name: str, file_info: Dict[str, Any]) -> str:
+    """Builds the schema string for a single file."""
+    schema_str = ""
+    if "columns" in file_info:
+        schema_str += f"\n--- {file_name} Schema ---\n"
+        for col in file_info["columns"]:
+            col_name = col.get("name", "unknown")
+            col_type = col.get("type", "unknown")
+            col_desc = col.get("description", "")
+
+            # Format: - column_name (TYPE): description
+            line = f"  - {col_name} ({col_type})"
+            if col_desc:
+                line += f": {col_desc}"
+            schema_str += line + "\n"
+    return schema_str
+
+
+def _format_file_sample_data(file_name: str, file_info: Dict[str, Any]) -> str:
+    """Builds the sample data string for a single file, including metadata and rows."""
+    df_sample_str = ""
+
+    # 1. Add file description metadata
+    df_sample_str += f"\n--- {file_name} File Metadata ---\n"
+    if "row_count" in file_info:
+        df_sample_str += f"Total Rows: {file_info['row_count']}"
+        if "summary" in file_info:
+            df_sample_str += f" | Summary: {file_info['summary']}"
+        df_sample_str += "\n"
+
+    # 2. Extract actual sample rows
+    sample_key = None
+    if "sample_data_markdown" in file_info and file_info["sample_data_markdown"]:
+        sample_key = "sample_data_markdown"
+    elif "sample_data" in file_info and file_info["sample_data"]:
+        sample_key = "sample_data"
+
+    if sample_key:
+        df_sample_str += f"\n--- {file_name} Sample Rows (Top 5) ---\n"
+        df_sample_str += file_info[sample_key]
+        df_sample_str += "\n"
+
+    return df_sample_str
+
+
+# ===========================================================================
+# REFACTORED MAIN FUNCTION
+# ===========================================================================
+
+
 def extract_schema_from_catalog(
     required_files: List[str], global_catalog_dict: Dict[str, Any]
 ) -> tuple[str, str]:
@@ -114,62 +179,26 @@ def extract_schema_from_catalog(
     Returns:
         Tuple of (schema_str, sample_data_str)
     """
-    parquet_schema = ""
-    df_sample = ""
+    all_parquet_schema = []
+    all_df_sample = []
 
     # 1. Handle edge cases (no files or wildcard)
     if not required_files or required_files == ["*"]:
-        return parquet_schema, df_sample
+        return "", ""
 
     for file_name in required_files:
-        # Find the metadata for the required file, using either the logical name or file_name
-        file_info = None
-        for logical_name, info in global_catalog_dict.items():
-            if info.get("file_name") == file_name or logical_name == file_name:
-                file_info = info
-                break
+        file_info = _find_file_info(file_name, global_catalog_dict)
 
         if not file_info:
             continue
 
-        # --- A. SCHEMA EXTRACTION ---
-        if "columns" in file_info:
-            parquet_schema += f"\n--- {file_name} Schema ---\n"
-            for col in file_info["columns"]:
-                col_name = col.get("name", "unknown")
-                col_type = col.get("type", "unknown")
-                col_desc = col.get("description", "")
+        # A. SCHEMA EXTRACTION
+        all_parquet_schema.append(_format_file_schema(file_name, file_info))
 
-                # Format: - column_name (TYPE): description
-                parquet_schema += f"  - {col_name} ({col_type})"
-                if col_desc:
-                    parquet_schema += f": {col_desc}"
-                parquet_schema += "\n"
+        # B. SAMPLE DATA EXTRACTION
+        all_df_sample.append(_format_file_sample_data(file_name, file_info))
 
-        # --- B. SAMPLE DATA EXTRACTION (FIXED) ---
-
-        # 1. Add file description metadata (what the old code was doing)
-        df_sample += f"\n--- {file_name} File Metadata ---\n"
-        if "row_count" in file_info:
-            df_sample += f"Total Rows: {file_info['row_count']}"
-            if "summary" in file_info:
-                df_sample += f" | Summary: {file_info['summary']}"
-            df_sample += "\n"
-
-        # 2. **CRITICAL FIX:** Extract the actual sample rows (assuming key is 'sample_data_markdown')
-        # This provides the LLM with actual values for semantic context.
-        if "sample_data_markdown" in file_info and file_info["sample_data_markdown"]:
-            df_sample += f"\n--- {file_name} Sample Rows (Top 5) ---\n"
-            # Assuming this field contains a pre-formatted string (e.g., Markdown table from Pandas)
-            df_sample += file_info["sample_data_markdown"]
-            df_sample += "\n"
-        elif "sample_data" in file_info and file_info["sample_data"]:
-            # Fallback/alternative key check
-            df_sample += f"\n--- {file_name} Sample Rows (Top 5) ---\n"
-            df_sample += file_info["sample_data"]
-            df_sample += "\n"
-
-    return parquet_schema, df_sample
+    return "".join(all_parquet_schema), "".join(all_df_sample)
 
 
 def build_path_mapping(
