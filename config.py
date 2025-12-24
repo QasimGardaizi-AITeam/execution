@@ -111,7 +111,7 @@ class AzureStorageConfig:
     @classmethod
     def from_env(cls):
         """Load configuration from environment variables"""
-        account_name = os.getenv("AZURE_STORAGE_ACCOUNT_NAME")
+        account_name = os.getenv("azure_storage_account_name")
         container_name = os.getenv("azure_storage_container_name")
         connection_string = os.getenv("azure_storage_connection_string")
         account_key = os.getenv("azure_storage_account_key")
@@ -163,11 +163,11 @@ class VectorDBConfig:
     def from_env(cls, db_type: VectorDBType = VectorDBType.CHROMADB):
         """Load configuration based on selected database type"""
 
-        db_type = VectorDBType.CHROMADB
+        if db_type == VectorDBType.CHROMADB:
+            chromadb_config = ChromaDBConfig.from_env()
+            return cls(db_type=db_type, chromadb=chromadb_config)
 
-        # Default to ChromaDB
-        chromadb_config = ChromaDBConfig.from_env()
-        return cls(db_type=db_type, chromadb=chromadb_config)
+        raise ValueError(f"Unsupported VectorDB type: {db_type}")
 
 
 @dataclass
@@ -309,7 +309,7 @@ class Config:
 
     @classmethod
     @property
-    def AZURE_STORAGE_ACCOUNT_NAME(cls):
+    def azure_storage_account_name(cls):
         return cls._get_app_config().azure_storage.account_name
 
     @classmethod
