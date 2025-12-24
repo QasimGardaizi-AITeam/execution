@@ -6,7 +6,7 @@ import json
 import time
 from typing import Any, Dict, Optional, Tuple
 
-import pandas as pd  # <-- Added missing import
+import pandas as pd
 from openai import AzureOpenAI
 
 from .chains import (
@@ -36,19 +36,57 @@ class SqlExecutionError(Exception):
 # ===========================================================================
 
 
-def _get_query_context(
+def _get_dependency_result(
     state: GraphState, analysis: QueryAnalysis, attempt: int
-) -> Tuple[str, Dict[str, str], str]:
-    """Prepares all necessary context for SQL generation."""
-
-    # 1. Get dependency result
+) -> str:
+    """Gets the execution result of a dependent query if available."""
     dependency_result = ""
-    if analysis["depends_on_index"] >= 0:
-        dep_result = state["executed_results"].get(analysis["depends_on_index"])
+    dep_idx = analysis["depends_on_index"]
+
+    if dep_idx >= 0:
+        dep_result = state["executed_results"].get(dep_idx)
         if dep_result and dep_result["status"] == "success":
             dependency_result = dep_result["results"]
             if attempt == 0 or state["enable_debug"]:
-                print(f"→ Using result from Q{analysis['depends_on_index'] + 1}")
+                print(f"→ Using result from Q{dep_idx + 1}")
+    return dependency_result
+
+
+def _get_dynamic_sample_data(
+    state: GraphState, analysis: QueryAnalysis, path_map: Dict[str, str], attempt: int
+) -> str:
+    """Reads and formats sample data from the first required file."""
+    df_sample = "No sample data available or required."
+
+    if not path_map:
+        return df_sample
+
+    # Identify the first file and its URI
+    first_file_name = analysis["required_files"][0]
+    first_uri = path_map.get(first_file_name) or list(path_map.values())[0]
+
+    if attempt == 0 or state["enable_debug"]:
+        print(f"Reading sample data from: {first_uri}")
+
+    # Read the data using the utility function
+    df_sample_markdown = read_top_rows_duckdb(first_uri, state["config"])
+
+    df_sample = (
+        f"--- Actual Sample Rows from '{first_file_name}' ---\n" + df_sample_markdown
+    )
+    if attempt == 0 or state["enable_debug"]:
+        print("[SAMPLE] Successfully read sample rows.")
+
+    return df_sample
+
+
+def _get_query_context(
+    state: GraphState, analysis: QueryAnalysis, attempt: int
+) -> Tuple[str, Dict[str, str], str, str]:
+    """Prepares all necessary context for SQL generation."""
+
+    # 1. Get dependency result (Refactored to helper)
+    dependency_result = _get_dependency_result(state, analysis, attempt)
 
     # 2. Extract schema
     parquet_schema, _ = extract_schema_from_catalog(
@@ -60,24 +98,11 @@ def _get_query_context(
         analysis["required_files"], state["global_catalog_dict"]
     )
 
-    # 4. Dynamic sample data logic
-    df_sample = "No sample data available or required."
-    if path_map:
-        first_file_name = analysis["required_files"][0]
-        first_uri = path_map.get(first_file_name) or list(path_map.values())[0]
+    # 4. Dynamic sample data logic (Refactored to helper)
+    df_sample = _get_dynamic_sample_data(state, analysis, path_map, attempt)
 
-        if attempt == 0 or state["enable_debug"]:
-            print(f"Reading sample data from: {first_uri}")
-
-        df_sample_markdown = read_top_rows_duckdb(first_uri, state["config"])
-
-        df_sample = (
-            f"--- Actual Sample Rows from '{first_file_name}' ---\n"
-            + df_sample_markdown
-        )
-        if attempt == 0 or state["enable_debug"]:
-            print("[SAMPLE] Successfully read sample rows.")
-
+    # The original function signature was missing the return type for parquet_schema (str),
+    # corrected it to match the actual return and logic
     return dependency_result, path_map, df_sample, parquet_schema
 
 
@@ -635,5 +660,4 @@ def should_continue_execution(state: GraphState) -> str:
     if state["remaining_indices"]:
         return "continue"
     else:
-        return "finalize"
         return "finalize"
