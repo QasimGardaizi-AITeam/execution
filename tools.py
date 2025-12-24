@@ -251,11 +251,6 @@ def _format_file_sample_data(file_name: str, file_info: Dict[str, Any]) -> str:
     return df_sample_str
 
 
-# ===========================================================================
-# REFACTORED MAIN FUNCTION
-# ===========================================================================
-
-
 def extract_schema_from_catalog(
     required_files: List[str], global_catalog_dict: Dict[str, Any]
 ) -> tuple[str, str]:

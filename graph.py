@@ -57,32 +57,4 @@ def create_query_processing_graph() -> StateGraph:
     workflow.add_edge("finalize", "generate_summary")
     workflow.add_edge("generate_summary", END)
 
-    # Compile graph
     return workflow.compile()
-
-
-def visualize_graph(graph: StateGraph, output_path: str = "graph.png"):
-    """
-    Visualize the graph structure.
-
-    Args:
-        graph: Compiled StateGraph
-        output_path: Path to save visualization
-    """
-    try:
-        from IPython.display import Image, display
-
-        # Generate mermaid diagram
-        mermaid_png = graph.get_graph().draw_mermaid_png()
-
-        # Save to file
-        with open(output_path, "wb") as f:
-            f.write(mermaid_png)
-
-        print(f"Graph visualization saved to {output_path}")
-
-        # Display in notebook
-        display(Image(mermaid_png))
-
-    except Exception as e:
-        print(f"Could not visualize graph: {e}")

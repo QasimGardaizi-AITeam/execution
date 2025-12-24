@@ -131,7 +131,7 @@ def _get_query_context(
 ) -> Tuple[str, Dict[str, str], str, str]:
     """Prepares all necessary context for SQL generation."""
 
-    # 1. Get dependency result (Refactored to helper)
+    # 1. Get dependency result
     dependency_result = _get_dependency_result(state, analysis, attempt)
 
     # 2. Extract schema
@@ -144,7 +144,7 @@ def _get_query_context(
         analysis["required_files"], state["global_catalog_dict"]
     )
 
-    # 4. Dynamic sample data logic (Refactored to helper)
+    # 4. Dynamic sample data logic
     df_sample = _get_dynamic_sample_data(state, analysis, path_map, attempt)
 
     return dependency_result, path_map, df_sample, parquet_schema
@@ -292,11 +292,6 @@ def _log_and_record_result(
             row_count=row_count,
             error=error_msg,
         )
-
-
-# ===========================================================================
-# REFACTORED NODE FUNCTIONS
-# ===========================================================================
 
 
 def validate_input_node(state: GraphState) -> GraphState:
