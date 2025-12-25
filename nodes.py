@@ -92,7 +92,17 @@ def _get_dependency_result(
 def _get_dynamic_sample_data(
     state: GraphState, analysis: QueryAnalysis, path_map: Dict[str, str], attempt: int
 ) -> str:
-    """Reads and formats sample data from the first required file."""
+    """
+    Reads and formats sample data from the first required file.
+
+    Dynamically scales the number of rows based on retry attempt:
+    - Attempt 0 (first try): 10 rows
+    - Attempt 1 (first retry): 20 rows
+    - Attempt 2+ (subsequent retries): 40 rows
+
+    This provides progressively more context to the LLM on retries to help
+    generate better SQL queries after failures.
+    """
     df_sample = "No sample data available or required."
 
     if not path_map:
@@ -107,17 +117,33 @@ def _get_dynamic_sample_data(
     first_file_name = analysis["required_files"][0]
     first_uri = path_map.get(first_file_name) or list(path_map.values())[0]
 
-    if attempt == 0 or state["enable_debug"]:
-        logger.debug(f"Reading sample data from: {first_uri}")
+    # Calculate rows based on attempt: 10 → 20 → 40
+    rows_to_fetch = 10 * (2**attempt)  # 10, 20, 40, 80...
+    # Cap at 40 rows to avoid excessive token usage
+    rows_to_fetch = min(rows_to_fetch, 40)
 
-    # Read the data using the utility function
-    df_sample_markdown = read_top_rows_duckdb(first_uri, state["config"])
+    if attempt > 0:
+        logger.info(
+            f"🔄 RETRY {attempt}: Fetching {rows_to_fetch} rows (increased from previous attempt)"
+        )
+
+    if attempt == 0 or state["enable_debug"]:
+        logger.debug(
+            f"Reading {rows_to_fetch} sample rows from: {first_uri} (attempt {attempt})"
+        )
+
+    # Read the data using the utility function with dynamic row count
+    df_sample_markdown = read_top_rows_duckdb(
+        first_uri, state["config"], rows=rows_to_fetch
+    )
 
     df_sample = (
-        f"--- Actual Sample Rows from '{first_file_name}' ---\n" + df_sample_markdown
+        f"--- Actual Sample Rows from '{first_file_name}' ({rows_to_fetch} rows for attempt {attempt + 1}) ---\n"
+        + df_sample_markdown
     )
+
     if attempt == 0 or state["enable_debug"]:
-        logger.debug("Successfully read sample rows")
+        logger.debug(f"Successfully read {rows_to_fetch} sample rows")
 
     return df_sample
 
@@ -140,7 +166,7 @@ def _get_query_context(
         analysis["required_files"], state["global_catalog_dict"]
     )
 
-    # 4. Dynamic sample data logic
+    # 4. Dynamic sample data logic - scales with retry attempts
     df_sample = _get_dynamic_sample_data(state, analysis, path_map, attempt)
 
     return dependency_result, path_map, df_sample, parquet_schema
@@ -149,7 +175,7 @@ def _get_query_context(
 def _run_query_with_self_healing(
     llm_client: AzureOpenAI, state: GraphState, analysis: QueryAnalysis
 ) -> Tuple[Optional[str], Optional[str], Optional[pd.DataFrame], Optional[str]]:
-    """Executes the SQL generation and retry loop."""
+    """Executes the SQL generation and retry loop with progressively more sample data."""
 
     sql_query = None
     explanation = None
@@ -166,10 +192,10 @@ def _run_query_with_self_healing(
         try:
             if attempt > 0:
                 logger.warning(
-                    f"FAILED. ATTEMPTING SELF-HEALING FALLBACK (Try {attempt + 1}/{max_attempts})"
+                    f"⚠️  RETRY ATTEMPT {attempt}/{max_attempts - 1}: Previous attempt failed, trying with more sample data"
                 )
 
-            # 1. Prepare context for LLM
+            # 1. Prepare context for LLM - includes dynamic sample data scaling
             dependency_result, path_map, df_sample, parquet_schema = _get_query_context(
                 state, analysis, attempt
             )
@@ -187,9 +213,6 @@ def _run_query_with_self_healing(
                 metrics_collector=state.get("metrics_collector"),
             )
 
-            # REMOVED: Incorrect metrics logging here
-            # The generate_sql_chain already logs metrics internally
-
             logger.info(f"Generated SQL: {current_sql_query[:100]}...")
             logger.debug(f"Explanation: {current_explanation}")
 
@@ -205,6 +228,12 @@ def _run_query_with_self_healing(
             sql_query = current_sql_query
             explanation = current_explanation
             error_msg = None
+
+            if attempt > 0:
+                logger.info(
+                    f"✅ RETRY SUCCESS: Query succeeded on attempt {attempt + 1}"
+                )
+
             break
 
         except Exception as e:
@@ -215,10 +244,10 @@ def _run_query_with_self_healing(
 
             if attempt == max_attempts - 1:
                 logger.error(
-                    f"FINAL ERROR: Failed after {max_attempts} attempts: {error_msg}"
+                    f"❌ FINAL ERROR: Failed after {max_attempts} attempts: {error_msg}"
                 )
             else:
-                logger.warning(f"Attempt {attempt + 1} failed: {error_msg}")
+                logger.warning(f"⚠️  Attempt {attempt + 1} failed: {error_msg}")
 
     return sql_query, explanation, result_df, error_msg
 
@@ -310,7 +339,7 @@ def _execute_single_sql_query(
 
     start_time = time.time()
 
-    # Execute query with self-healing attempts
+    # Execute query with self-healing attempts (includes dynamic sample data scaling)
     sql_query, explanation, result_df, error_msg = _run_query_with_self_healing(
         llm_client, state, analysis
     )

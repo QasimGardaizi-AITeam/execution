@@ -91,8 +91,7 @@ You are an expert query analyzer. Analyze the user's question and provide struct
 
 **INTENT CLASSIFICATION:**
 - SQL_QUERY: Precise filtering, aggregation, dates, numerical comparisons
-- SUMMARY_SEARCH: Fuzzy logic, conceptual search, RAG, GraphDB
-(FOR NOW RETURN ONLY SQL_QUERY)
+- SUMMARY_SEARCH: Fuzzy logic, conceptual search, RAG, GraphDB (FOR NOW RETURN ONLY SQL_QUERY Dont Return SUMMARY_SEARCH in any case)
 
 **FILE IDENTIFICATION:**
 1. Use EXACT file names from catalog

@@ -160,7 +160,7 @@ def main():
     config = get_config()
 
     # Load catalog
-    CATALOG_FILE = "./inputs/narcan.json"
+    CATALOG_FILE = "./inputs/conference.json"
     try:
         with open(CATALOG_FILE, "r") as f:
             catalog_data = json.load(f)
