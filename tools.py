@@ -30,9 +30,12 @@ def validate_sql_query(query: str) -> None:
     """
     query_upper = query.upper().strip()
 
-    # Only allow SELECT queries
-    if not query_upper.startswith("SELECT"):
-        raise ValueError("Only SELECT queries are allowed")
+    # Allow SELECT queries and CTEs (WITH clause)
+    # CTEs (Common Table Expressions) are read-only and safe
+    if not (query_upper.startswith("SELECT") or query_upper.startswith("WITH")):
+        raise ValueError(
+            "Only SELECT queries (including CTEs with WITH clause) are allowed"
+        )
 
     # Block dangerous keywords
     dangerous_keywords = [
