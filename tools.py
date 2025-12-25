@@ -80,11 +80,7 @@ def execute_duckdb_query(query: str, config: Any) -> pd.DataFrame:
 
     try:
 
-        @retry_with_exponential_backoff(
-            max_attempts=2,
-            initial_wait=2.0,
-            exceptions=(duckdb.IOException,),
-        )
+        @retry_with_exponential_backoff(max_attempts=3)
         def execute_with_retry():
             # Use context manager for automatic resource cleanup
             with duckdb.connect() as conn:
@@ -149,7 +145,7 @@ def read_top_rows_duckdb(uri: str, config: Any) -> str:
         logger.debug(f"Reading sample rows from: {uri}")
 
         # Construct the DuckDB query to read the file and limit rows
-        sql_query = f"SELECT * FROM read_parquet('{uri}') LIMIT 5"
+        sql_query = f"SELECT * FROM read_parquet('{uri}') LIMIT 10"
 
         result_df: pd.DataFrame = execute_duckdb_query(sql_query, config)
 
