@@ -129,23 +129,24 @@ def execute_duckdb_query(query: str, config: Any) -> pd.DataFrame:
         return pd.DataFrame({"Error": [error_msg]})
 
 
-def read_top_rows_duckdb(uri: str, config: Any) -> str:
+def read_top_rows_duckdb(uri: str, config: Any, rows: int = 10) -> str:
     """
-    Reads the top 5 rows from a Parquet file at a given URI using DuckDB
+    Reads the top N rows from a Parquet file at a given URI using DuckDB
     and formats the result as a Markdown table string.
 
     Args:
         uri: Azure URI of the parquet file
         config: Configuration object with Azure credentials
+        rows: Number of rows to fetch (default: 10, scales up on retries)
 
     Returns:
         Markdown formatted table string or error message
     """
     try:
-        logger.debug(f"Reading sample rows from: {uri}")
+        logger.debug(f"Reading {rows} sample rows from: {uri}")
 
         # Construct the DuckDB query to read the file and limit rows
-        sql_query = f"SELECT * FROM read_parquet('{uri}') LIMIT 10"
+        sql_query = f"SELECT * FROM read_parquet('{uri}') LIMIT {rows}"
 
         result_df: pd.DataFrame = execute_duckdb_query(sql_query, config)
 
