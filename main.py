@@ -160,7 +160,7 @@ def main():
     config = get_config()
 
     # Load catalog
-    CATALOG_FILE = "./inputs/conference.json"
+    CATALOG_FILE = "./inputs/uv4b.json"
     try:
         with open(CATALOG_FILE, "r") as f:
             catalog_data = json.load(f)
@@ -183,7 +183,11 @@ def main():
     # Test queries
 
     test_queries = [
-        """Find a list of upcoming(Post June) pharmaceutical or biotech conferences in 2025. Include the event name, date , location overall theme or focus, target audience, and why it might be relevant for a company like Emergent BioSolutions"""
+        """If Summary = "Yes", treat that row as a main (parent) task.
+Assign all immediately following rows with Summary = "No" as subtasks under the most recent main task.
+When you find another Summary = "Yes", begin a new group.
+For each subtask, display: Unique ID, Task Name, Start, Finish, Duration, % Complete, Cost.
+Sort all main tasks and subtasks together by Unique ID (ascending)."""
     ]
     for query in test_queries:
         logger.info(f"PROCESSING: {query}")

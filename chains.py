@@ -83,11 +83,37 @@ You are an expert query analyzer. Analyze the user's question and provide struct
 {catalog_schema}
 --- END CATALOG ---
 
-**DECOMPOSITION RULES:**
-1. Break into MULTIPLE sub-questions ONLY if atomically independent OR dependent
-2. Keep as SINGLE question if parts share same filter/aggregation
-3. If handled by single SQL query, do NOT decompose
-4. ONLY decompose sub-questions that can be handled by single SQL query either by join or by cte or simple query.
+**DECOMPOSITION RULES (CRITICAL):**
+1. Break into MULTIPLE sub-questions ONLY if parts are:
+   - Logically independent AND
+   - Answerable in isolation WITHOUT referencing the same entity set
+
+2. KEEP AS A SINGLE QUESTION when the request:
+   - Asks for a LIST of entities with multiple attributes
+   - Uses phrases like "include", "show", "with", "along with"
+   - Describes multiple fields of the SAME result set
+   - Can be answered by iterating over ONE filtered collection
+
+3. DO NOT decompose based on:
+   - Multiple output fields
+   - Explanatory attributes (e.g., relevance, audience, rationale)
+   - Narrative or descriptive additions
+   - Post-processing or enrichment of the same items
+
+4. If all parts apply the SAME time filter, domain filter, or entity type,
+   it MUST remain a SINGLE question.
+
+5. ONLY decompose if:
+   - Different sub-questions require DIFFERENT filters, OR
+   - One sub-question requires the OUTPUT of another to exist first
+
+6. If the task conceptually resembles:
+   - "Find a list of X and include A, B, C"
+   - "Show events/products/people with details"
+   → DO NOT DECOMPOSE.
+
+7. If the request CANNOT be meaningfully answered unless all parts are returned together,
+   it MUST remain a SINGLE question.
 
 **INTENT CLASSIFICATION:**
 - SQL_QUERY: Precise filtering, aggregation, dates, numerical comparisons
