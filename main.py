@@ -4,15 +4,32 @@ Main entry point for multi-intent query processing
 
 import json
 import time
+from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict
 
 from graph import create_query_processing_graph
-from logging_config import get_logger
+from logging_config import get_logger, setup_logging
 from monitoring import MetricsCollector
 from state import GraphState
 from validation import ValidationError, sanitize_user_question, validate_config_object
 
-logger = get_logger()
+# Create logs directory if it doesn't exist
+LOGS_DIR = Path("./logs")
+LOGS_DIR.mkdir(exist_ok=True)
+
+# Setup logging with file output
+# Create timestamped log file
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+log_file = LOGS_DIR / f"pipeline_{timestamp}.log"
+
+logger = setup_logging(
+    log_level="INFO",  # Change to "DEBUG" for more detailed logs
+    log_file=str(log_file),
+    enable_console=True,  # Set to False if you only want file logging
+)
+
+logger.info(f"Logging to file: {log_file}")
 
 
 def process_query(
@@ -134,11 +151,16 @@ def process_query(
 
 def main():
     from config import get_config
+    from response_saver import (
+        save_response_to_file,
+        save_summary_to_markdown,
+        save_tables_to_csv,
+    )
 
     config = get_config()
 
     # Load catalog
-    CATALOG_FILE = "./inputs/uv4b.json"
+    CATALOG_FILE = "./inputs/Hltachi.json"
     try:
         with open(CATALOG_FILE, "r") as f:
             catalog_data = json.load(f)
@@ -160,11 +182,7 @@ def main():
 
     # Test queries
 
-    test_queries = [
-        """For each task, show the Task Name, Actual Start, Actual Finish, Baseline Start, and Baseline Finish.
-List tasks where Baseline Finish is earlier than Actual Finish.
-Identify tasks where Actual Finish is equal to Baseline Finish."""
-    ]
+    test_queries = ["""Can you provide a list of users with the lowest usage?"""]
     for query in test_queries:
         logger.info(f"PROCESSING: {query}")
 
@@ -177,8 +195,63 @@ Identify tasks where Actual Finish is equal to Baseline Finish."""
         )
 
         logger.info("FINAL RESULTS")
+        logger.info("=" * 80)
+        logger.info(f"Status: {result['status']}")
+        logger.info(f"Total Duration: {result['total_duration']:.2f}s")
+        logger.info(f"Total Questions: {result['total_questions']}")
+        logger.info(f"Metrics: {json.dumps(result['metrics'], indent=2)}")
+        logger.info("=" * 80)
 
-        print(json.dumps(result, indent=2, default=str))
+        # Log complete response to file
+        logger.info("\n" + "=" * 80)
+        logger.info("COMPLETE RESPONSE (JSON)")
+        logger.info("=" * 80)
+
+        # Log the full JSON response
+        response_json = json.dumps(result, indent=2, default=str)
+        logger.info(response_json)
+
+        logger.info("=" * 80)
+        logger.info("END OF RESPONSE")
+        logger.info("=" * 80)
+
+        # Also print to console
+        print(response_json)
+
+        # Save response to files
+        try:
+            # Save complete JSON
+            json_file = save_response_to_file(result, output_dir="./outputs")
+            logger.info(f"💾 Saved complete JSON response: {json_file}")
+
+            # Save summary as Markdown
+            md_file = save_summary_to_markdown(result, output_dir="./outputs")
+            logger.info(f"📄 Saved Markdown summary: {md_file}")
+
+            # Save tables as CSV
+            csv_files = save_tables_to_csv(result, output_dir="./outputs")
+            if csv_files:
+                logger.info(f"📊 Saved {len(csv_files)} CSV tables:")
+                for csv_file in csv_files:
+                    logger.info(f"   - {csv_file}")
+        except Exception as e:
+            logger.warning(f"Failed to save response files: {e}")
+
+        logger.info(f"\n✅ Full logs saved to: {log_file}")
+        logger.info(
+            f"✅ Total tables generated: {len(result.get('final_summary', {}).get('tables', []))}"
+        )
+
+        # Log table summaries
+        if result.get("final_summary") and result["final_summary"].get("tables"):
+            logger.info("\n📊 TABLE SUMMARIES:")
+            for idx, table in enumerate(result["final_summary"]["tables"], 1):
+                logger.info(f"  Table {idx}: {table.get('title', 'Untitled')}")
+                logger.info(f"    Rows: {len(table.get('rows', []))}")
+                logger.info(f"    Columns: {len(table.get('headers', []))}")
+                logger.info(
+                    f"    Description: {table.get('description', 'No description')}"
+                )
 
 
 if __name__ == "__main__":

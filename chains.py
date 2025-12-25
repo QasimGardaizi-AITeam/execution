@@ -256,14 +256,35 @@ Generate DuckDB SQL query for Parquet files on Azure Blob Storage.
 
 **CRITICAL INSTRUCTIONS FOR DUCKDB SQL GENERATION:**
 1. **URI MANDATE:** Use the EXACT full Azure URI provided in FILE PATH MAPPING with `read_parquet()` (e.g., `read_parquet('azure://...')`). NEVER use placeholders or wildcards.
-2. **COLUMN ALIASES:** Use `AS` to give clear, user-friendly names to calculated fields (e.g., `SUM(...) AS total_sales`).
-3. **MANDATORY GROUPING:** If the `SELECT` clause contains any aggregate function (like `SUM`, `AVG`, `COUNT`), you **MUST** include a `GROUP BY` clause listing all non-aggregated columns (`region`, `product_category`, etc.). This is required to prevent "Binder Error."
-4. **RANKING/TOP-N:** For "highest X per Y" or "top N" questions, you **MUST** use the `QUALIFY` clause with a Window Function (`ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY sum_col DESC) = 1`) to filter the results.
-5. **CLAUSE ORDER (CRITICAL):** The sequence of clauses is strictly enforced: `... from .. WHERE ... **GROUP BY** ... **QUALIFY** ...  . The **GROUP BY** clause must immediately precede the **QUALIFY** clause.
-6. **AGGREGATION CHOICE:** When calculating totals (e.g., "annual sales"), use `SUM()`.
-7. **NULL HANDLING:** Include `WHERE column IS NOT NULL` for all columns used in critical calculations (aggregations, filters) to ensure accuracy.
-8. **JSON FORMAT:** Your final output MUST be a valid JSON object.
-9. **FILTERS:** Create Filters By Carefully Reviewing the Data Schema and Sample Data.
+2. **COLUMN NAMES (CRITICAL):** 
+   - Always use EXACT column names from the schema with proper quotes
+   - Column names with spaces MUST be quoted: "Full name", "Position Title", "EBS Cost Center"
+   - Column names are case-sensitive: "Full name" ≠ "full_name"
+   - NEVER use snake_case if schema shows spaces: Use "Full name" NOT "full_name"
+   - Check the SCHEMA section for exact column names before writing SQL
+3. **COLUMN ALIASES:** Use `AS` to give clear, user-friendly names to calculated fields (e.g., `SUM(...) AS total_sales`).
+4. **MANDATORY GROUPING:** If the `SELECT` clause contains any aggregate function (like `SUM`, `AVG`, `COUNT`), you **MUST** include a `GROUP BY` clause listing all non-aggregated columns (`region`, `product_category`, etc.). This is required to prevent "Binder Error."
+5. **RANKING/TOP-N:** For "highest X per Y" or "top N" questions, you **MUST** use the `QUALIFY` clause with a Window Function (`ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY sum_col DESC) = 1`) to filter the results.
+6. **CLAUSE ORDER (CRITICAL):** The sequence of clauses is strictly enforced: `... from .. WHERE ... **GROUP BY** ... **QUALIFY** ...  . The **GROUP BY** clause must immediately precede the **QUALIFY** clause.
+7. **AGGREGATION CHOICE:** When calculating totals (e.g., "annual sales"), use `SUM()`.
+8. **NULL HANDLING:** Include `WHERE column IS NOT NULL` for all columns used in critical calculations (aggregations, filters) to ensure accuracy.
+9. ** TEXT MATCHING (CRITICAL — STRICT ENFORCEMENT):**
+   - NEVER use = for text comparison
+   - ALWAYS use case-insensitive fuzzy matching
+   - ALWAYS use LIKE with wildcards (%)
+   - ALWAYS use UPPER() or LOWER()
+   - ALWAYS use REPLACE() to normalize punctuation
+   - For name or title lookups:
+     * Split words on spaces
+     * Search each word with OR
+     * ALSO include a full-string fuzzy match
+   - Example pattern (MANDATORY):
+
+     WHERE (
+       UPPER(REPLACE(col, '.', '')) LIKE '%WORD1%'
+       OR UPPER(REPLACE(col, '.', '')) LIKE '%WORD2%'
+       OR UPPER(REPLACE(col, '.', '')) LIKE '%WORD1 WORD2%'
+     )
 
 Return valid JSON:
 {{
@@ -331,6 +352,69 @@ Return valid JSON:
         raise RuntimeError(f"SQL generation failed: {e}")
 
 
+def create_tables_from_results(
+    query_results: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """
+    Create complete tables directly from query results without LLM truncation.
+
+    This bypasses token limits by creating tables directly from JSON data
+    instead of passing all data through the LLM.
+
+    Args:
+        query_results: List of query results
+
+    Returns:
+        List of table dictionaries with complete data
+    """
+    tables = []
+
+    for idx, result in enumerate(query_results):
+        if result["status"] != "success":
+            continue
+
+        # Parse the JSON results
+        try:
+            data = json.loads(result["results"])
+
+            if not data or not isinstance(data, list):
+                logger.warning(f"Result {idx + 1} has no data or invalid format")
+                continue
+
+            # Extract headers from first row
+            if not data[0]:
+                continue
+
+            headers = list(data[0].keys())
+
+            # Extract all rows (NO TRUNCATION)
+            rows = []
+            for row_data in data:
+                row = [str(row_data.get(h, "")) for h in headers]
+                rows.append(row)
+
+            # Create table with ALL data
+            tables.append(
+                {
+                    "title": result["sub_question"],
+                    "description": f"Complete results: {len(rows)} rows",
+                    "headers": headers,
+                    "rows": rows,
+                }
+            )
+
+            logger.info(f"Created table with {len(rows)} rows for result {idx + 1}")
+
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to parse result {idx + 1}: {e}")
+            continue
+        except Exception as e:
+            logger.warning(f"Error creating table for result {idx + 1}: {e}")
+            continue
+
+    return tables
+
+
 def generate_final_summary_chain(
     llm_client: AzureOpenAI,
     deployment_name: str,
@@ -339,6 +423,10 @@ def generate_final_summary_chain(
 ) -> Dict[str, Any]:
     """
     Generate final summary combining all query results.
+
+    Uses a hybrid approach:
+    1. Creates complete tables directly from data (bypasses token limits)
+    2. Uses LLM only for narrative summary (with truncated context)
 
     Args:
         llm_client: Azure OpenAI client
@@ -349,7 +437,14 @@ def generate_final_summary_chain(
     Returns:
         Dictionary with summary_text, tables, and has_tables
     """
-    # Prepare results context
+    # STEP 1: Create complete tables directly from data (no LLM, no truncation)
+    complete_tables = create_tables_from_results(query_results)
+
+    logger.info(f"Created {len(complete_tables)} complete tables from results")
+    for idx, table in enumerate(complete_tables):
+        logger.info(f"  Table {idx + 1}: {len(table['rows'])} rows")
+
+    # STEP 2: Prepare lightweight context for LLM (summary only, not tables)
     results_context = ""
     for idx, result in enumerate(query_results, 1):
         results_context += f"\n--- Result {idx} ---\n"
@@ -358,58 +453,52 @@ def generate_final_summary_chain(
 
         if result["status"] == "success":
             results_context += f"SQL: {result.get('sql_query', 'N/A')}\n"
-            results_context += (
-                f"Data: {result['results'][:1000]}...\n"  # Truncate for context
-            )
+
+            # Only include metadata, not full data (to save tokens)
+            try:
+                data = json.loads(result["results"])
+                results_context += f"Rows returned: {len(data)}\n"
+
+                # Include just a small sample for context
+                if len(data) > 0:
+                    sample_size = min(3, len(data))
+                    sample_data = data[:sample_size]
+                    results_context += f"Sample (first {sample_size} rows): {json.dumps(sample_data)}\n"
+            except:
+                results_context += f"Data: {result['results'][:500]}...\n"
+
         elif result["status"] == "placeholder":
             results_context += f"Placeholder: {result['results']}\n"
 
         results_context += "\n"
 
+    # STEP 3: Use LLM to generate narrative summary ONLY (not tables)
     summary_prompt = f"""
-
-You are an expert data analyst. Generate a comprehensive summary of query results.
+You are an expert data analyst. Generate a BRIEF narrative summary of the query results.
 
 **ORIGINAL QUESTION:**
 {user_question}
 
-**QUERY RESULTS:**
+**QUERY RESULTS SUMMARY:**
 {results_context}
 
 **YOUR TASK:**
-1. Analyze all results and synthesize insights
-2. Determine if tabular data is appropriate:
-   - Use tables for: comparisons, rankings, statistical data, trends over time
-   - Use text only for: conceptual explanations, qualitative insights, recommendations
-3. Create a narrative summary with key findings
-4. If tables are appropriate, format them clearly with headers and data
-5. For Text User Proper Styling Like bullets or list if necessary
-6. Only Answer for the asked original answer dont add unnecessary information 
+Generate a concise narrative summary (2-4 paragraphs) that:
+1. Directly answers the original question
+2. Highlights key findings and insights
+3. References specific numbers and patterns from the data
+4. Is written for a business audience (not developers)
+
+**IMPORTANT:**
+- DO NOT create tables - they are handled separately
+- Focus on narrative insights and interpretation
+- Be specific with numbers and findings
+- Keep it concise but comprehensive
 
 **OUTPUT FORMAT (JSON):**
 {{
-    "summary_text": "Comprehensive narrative summary with key insights, trends, and patterns. Be specific and reference actual data points. Organize with clear sections if needed.",
-    "has_tables": true/false,
-    "tables": [
-        {{
-            "title": "Table title",
-            "description": "Brief description",
-            "headers": ["Column1", "Column2", "Column3"],
-            "rows": [
-                ["Value1", "Value2", "Value3"],
-                ["Value4", "Value5", "Value6"]
-            ]
-        }}
-    ]
+    "summary_text": "Your narrative summary here (2-4 paragraphs)"
 }}
-
-**GUIDELINES:**
-- Be specific with numbers, percentages, and data points
-- Highlight key trends and patterns
-- Compare across different dimensions when relevant
-- Keep summary concise but comprehensive Add All Necessary Information That is Demanded in the Question
-- Tables should have clear headers and meaningful data and should contain all relevant data to the question
-- If no table needed, return empty tables array
 """
 
     try:
@@ -433,11 +522,11 @@ You are an expert data analyst. Generate a comprehensive summary of query result
 
         result = json.loads(response.choices[0].message.content.strip())
 
-        # Validate structure
+        # Combine LLM summary with complete tables (created in Step 1)
         summary_result = {
             "summary_text": result.get("summary_text", "No summary generated"),
-            "has_tables": result.get("has_tables", False),
-            "tables": result.get("tables", []),
+            "has_tables": len(complete_tables) > 0,
+            "tables": complete_tables,  # Use complete tables, not LLM-generated ones
         }
 
         # Log token usage if available
@@ -451,12 +540,27 @@ You are an expert data analyst. Generate a comprehensive summary of query result
                 timing["duration"],
             )
 
-        logger.info(f"Generated summary with {len(summary_result['tables'])} tables")
+        logger.info(
+            f"Generated summary with {len(summary_result['tables'])} complete tables"
+        )
         return summary_result
 
     except json.JSONDecodeError as e:
         logger.error(f"Invalid JSON response: {e}")
-        raise ValueError(f"Invalid JSON response: {e}")
+
+        # Fallback: return tables without LLM summary
+        return {
+            "summary_text": f"Error generating narrative summary: {e}. See tables below for complete results.",
+            "has_tables": len(complete_tables) > 0,
+            "tables": complete_tables,
+        }
+
     except Exception as e:
         logger.error(f"Summary generation failed: {e}", exc_info=True)
-        raise RuntimeError(f"Summary generation failed: {e}")
+
+        # Fallback: return tables without LLM summary
+        return {
+            "summary_text": f"Error generating summary: {e}. See tables below for complete results.",
+            "has_tables": len(complete_tables) > 0,
+            "tables": complete_tables,
+        }
