@@ -178,7 +178,8 @@ def generate_sql_chain(
     df_sample: str,
     path_map: Dict[str, str],
     semantic_context: str = "",
-    error_message: Optional[str] = None,  # TYPE FIX: Added Optional
+    error_message: Optional[str] = None,
+    metrics_collector: Optional[Any] = None,
 ) -> Tuple[str, str]:
     """
     Generate SQL query using LLM.
@@ -305,6 +306,15 @@ Return valid JSON:
                 response.usage.total_tokens,
                 timing["duration"],
             )
+            if metrics_collector:
+                metrics_collector.record_llm_call(
+                    model=deployment_name,
+                    operation="sql_generation",
+                    prompt_tokens=response.usage.prompt_tokens,
+                    completion_tokens=response.usage.completion_tokens,
+                    total_tokens=response.usage.total_tokens,
+                    duration=timing["duration"],
+                )
 
         logger.debug(f"Generated SQL query: {sql_query[:100]}...")
         return sql_query, explanation
@@ -368,6 +378,8 @@ You are an expert data analyst. Generate a comprehensive summary of query result
    - Use text only for: conceptual explanations, qualitative insights, recommendations
 3. Create a narrative summary with key findings
 4. If tables are appropriate, format them clearly with headers and data
+5. For Text User Proper Styling Like bullets or list if necessary
+6. Only Answer for the asked original answer dont add unnecessary information 
 
 **OUTPUT FORMAT (JSON):**
 {{
