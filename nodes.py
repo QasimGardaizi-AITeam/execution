@@ -495,13 +495,13 @@ def identify_ready_queries_node(state: GraphState) -> GraphState:
 
 def execute_sql_query_node(state: GraphState) -> GraphState:
     """
-    Execute SQL queries in current batch IN PARALLEL with LLM-based self-healing fallback.
+    Execute SQL queries in current batch IN PARALLEL with adaptive rate limiting.
 
-    This node now executes all SQL queries in the batch concurrently using ThreadPoolExecutor.
+    Splits queries into smaller batches with delays to avoid Azure rate limits.
     """
 
     logger.info(
-        f"NODE: Execute SQL Queries (Batch: {len(state['current_batch'])}) - PARALLEL EXECUTION"
+        f"NODE: Execute SQL Queries (Batch: {len(state['current_batch'])}) - PARALLEL EXECUTION WITH ADAPTIVE RATE LIMITING"
     )
 
     # Filter to only SQL queries in the batch
@@ -515,7 +515,9 @@ def execute_sql_query_node(state: GraphState) -> GraphState:
         logger.info("No SQL queries in current batch")
         return state
 
-    logger.info(f"Executing {len(sql_query_indices)} SQL queries in parallel")
+    logger.info(
+        f"Executing {len(sql_query_indices)} SQL queries with adaptive rate limiting"
+    )
 
     # Initialize LLM client once for all queries
     try:
@@ -529,69 +531,96 @@ def execute_sql_query_node(state: GraphState) -> GraphState:
         _handle_client_init_error(state, error_msg)
         return state
 
-    # Execute queries in parallel using ThreadPoolExecutor
-    max_workers = min(len(sql_query_indices), 5)  # Limit to 5 concurrent queries
+    # ADAPTIVE RATE LIMITING: Split into batches
+    batch_size = 5  # Queries per batch
+    batch_delay = 10  # Seconds between batches
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Submit all queries for execution
-        future_to_idx = {
-            executor.submit(_execute_single_sql_query, idx, state, llm_client): idx
-            for idx in sql_query_indices
-        }
+    # Split queries into batches
+    batches = [
+        sql_query_indices[i : i + batch_size]
+        for i in range(0, len(sql_query_indices), batch_size)
+    ]
 
-        # Collect results as they complete
-        for future in as_completed(future_to_idx):
-            idx = future_to_idx[future]
-            try:
-                # Get the result
-                (
-                    idx,
-                    sql_query,
-                    explanation,
-                    result_df,
-                    error_msg,
-                    execution_duration,
-                ) = future.result()
+    logger.info(f"Split into {len(batches)} batches of max {batch_size} queries each")
 
-                analysis = state["analyses"][idx]
+    # Process each batch with delay
+    for batch_num, batch in enumerate(batches):
+        # Add delay between batches (except first one)
+        if batch_num > 0:
+            logger.info(
+                f"Waiting {batch_delay}s before starting batch {batch_num + 1}..."
+            )
+            time.sleep(batch_delay)
 
-                # Log and record the result
-                _log_and_record_result(
-                    state,
-                    idx,
-                    analysis,
-                    sql_query,
-                    explanation,
-                    result_df,
-                    error_msg,
-                    execution_duration,
-                )
+        logger.info(
+            f"Processing batch {batch_num + 1}/{len(batches)} ({len(batch)} queries)"
+        )
 
-                # Remove from remaining indices
-                if idx in state["remaining_indices"]:
-                    state["remaining_indices"].remove(idx)
+        # Execute current batch in parallel
+        max_workers = min(len(batch), 5)
 
-            except Exception as e:
-                # Handle unexpected errors in parallel execution
-                error_msg = f"Unexpected error in parallel execution: {str(e)}"
-                logger.error(error_msg, exc_info=True)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all queries in current batch
+            future_to_idx = {
+                executor.submit(_execute_single_sql_query, idx, state, llm_client): idx
+                for idx in batch
+            }
 
-                analysis = state["analyses"][idx]
-                state["executed_results"][idx] = QueryResult(
-                    sub_question=analysis["sub_question"],
-                    intent=analysis["intent"],
-                    status=QueryStatus.ERROR.value,
-                    sql_query=None,
-                    sql_explanation=None,
-                    results=json.dumps({"Error": error_msg}),
-                    execution_duration=0.0,
-                    error=error_msg,
-                )
+            # Collect results as they complete
+            for future in as_completed(future_to_idx):
+                idx = future_to_idx[future]
+                try:
+                    # Get the result
+                    (
+                        idx,
+                        sql_query,
+                        explanation,
+                        result_df,
+                        error_msg,
+                        execution_duration,
+                    ) = future.result()
 
-                if idx in state["remaining_indices"]:
-                    state["remaining_indices"].remove(idx)
+                    analysis = state["analyses"][idx]
 
-    logger.info(f"Completed parallel execution of {len(sql_query_indices)} SQL queries")
+                    # Log and record the result
+                    _log_and_record_result(
+                        state,
+                        idx,
+                        analysis,
+                        sql_query,
+                        explanation,
+                        result_df,
+                        error_msg,
+                        execution_duration,
+                    )
+
+                    # Remove from remaining indices
+                    if idx in state["remaining_indices"]:
+                        state["remaining_indices"].remove(idx)
+
+                except Exception as e:
+                    # Handle unexpected errors in parallel execution
+                    error_msg = f"Unexpected error in parallel execution: {str(e)}"
+                    logger.error(error_msg, exc_info=True)
+
+                    analysis = state["analyses"][idx]
+                    state["executed_results"][idx] = QueryResult(
+                        sub_question=analysis["sub_question"],
+                        intent=analysis["intent"],
+                        status=QueryStatus.ERROR.value,
+                        sql_query=None,
+                        sql_explanation=None,
+                        results=json.dumps({"Error": error_msg}),
+                        execution_duration=0.0,
+                        error=error_msg,
+                    )
+
+                    if idx in state["remaining_indices"]:
+                        state["remaining_indices"].remove(idx)
+
+    logger.info(
+        f"Completed adaptive rate-limited execution of {len(sql_query_indices)} SQL queries"
+    )
     return state
 
 

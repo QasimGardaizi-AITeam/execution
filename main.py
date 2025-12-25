@@ -138,7 +138,7 @@ def main():
     config = get_config()
 
     # Load catalog
-    CATALOG_FILE = "./inputs/TDQP.json"
+    CATALOG_FILE = "./inputs/uv4b.json"
     try:
         with open(CATALOG_FILE, "r") as f:
             catalog_data = json.load(f)
@@ -161,7 +161,9 @@ def main():
     # Test queries
 
     test_queries = [
-        """What are the column headers in this table?”  / "Are there any columns representing percentage or currency values?"""
+        """For each task, show the Task Name, Actual Start, Actual Finish, Baseline Start, and Baseline Finish.
+List tasks where Baseline Finish is earlier than Actual Finish.
+Identify tasks where Actual Finish is equal to Baseline Finish."""
     ]
     for query in test_queries:
         logger.info(f"PROCESSING: {query}")

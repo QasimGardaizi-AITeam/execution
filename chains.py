@@ -103,6 +103,9 @@ You are an expert query analyzer. Analyze the user's question and provide struct
 **DEPENDENCY DETECTION:**
 - Set depends_on_index to dependency index
 - -1 means independent
+- Only set depends_on_index if the query MUST use specific values from a previous result
+- If queries can access the same source data independently, keep them independent (depends_on_index = -1)
+- Don't create dependencies just because queries are related conceptually
 """
 
     try:
@@ -260,6 +263,7 @@ Generate DuckDB SQL query for Parquet files on Azure Blob Storage.
 6. **AGGREGATION CHOICE:** When calculating totals (e.g., "annual sales"), use `SUM()`.
 7. **NULL HANDLING:** Include `WHERE column IS NOT NULL` for all columns used in critical calculations (aggregations, filters) to ensure accuracy.
 8. **JSON FORMAT:** Your final output MUST be a valid JSON object.
+9. **FILTERS:** Create Filters By Carefully Reviewing the Data Schema and Sample Data.
 
 Return valid JSON:
 {{
@@ -363,6 +367,7 @@ def generate_final_summary_chain(
         results_context += "\n"
 
     summary_prompt = f"""
+
 You are an expert data analyst. Generate a comprehensive summary of query results.
 
 **ORIGINAL QUESTION:**
@@ -402,8 +407,8 @@ You are an expert data analyst. Generate a comprehensive summary of query result
 - Be specific with numbers, percentages, and data points
 - Highlight key trends and patterns
 - Compare across different dimensions when relevant
-- Keep summary concise but comprehensive (500-1500 words)
-- Tables should have clear headers and meaningful data
+- Keep summary concise but comprehensive Add All Necessary Information That is Demanded in the Question
+- Tables should have clear headers and meaningful data and should contain all relevant data to the question
 - If no table needed, return empty tables array
 """
 
