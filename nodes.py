@@ -72,8 +72,8 @@ def _combine_dependent_results(
     Combine dependent query result with parent query result intelligently.
 
     Strategy:
-    1. Extract parent's key results (small, critical data only)
-    2. Use DuckDB to join/filter current result based on parent keys
+    1. Extract parent's SUMMARY INFO only (not full data - prevents token explosion)
+    2. Add minimal metadata to current result
     3. Return combined result WITHOUT keeping both DataFrames in memory
 
     Example:
@@ -93,17 +93,23 @@ def _combine_dependent_results(
             logger.warning(f"Q{idx + 1}: Parent has no data to combine with")
             return current_result_df
 
-        # Strategy: Add parent context as columns to current result
-        # This avoids creating large merged DataFrames
+        # OPTIMIZATION: Don't add parent data to child DataFrame
+        # The child SQL already incorporated parent context via semantic_context
+        # Just add a simple flag indicating this is a combined result
 
-        # Get parent question for context
+        # Get parent question for context (metadata only)
         parent_question = state["analyses"][dep_idx]["sub_question"]
+        parent_row_count = len(parent_data)
 
-        # Add metadata column indicating this combines parent results
-        current_result_df["_parent_query"] = parent_question
-        current_result_df["_combined_result"] = True
+        # Add MINIMAL metadata (doesn't bloat the DataFrame)
+        current_result_df.attrs["parent_query"] = parent_question
+        current_result_df.attrs["parent_row_count"] = parent_row_count
+        current_result_df.attrs["is_combined"] = True
 
-        logger.info(f"✅ Q{idx + 1}: Combined with parent Q{dep_idx + 1} results")
+        logger.info(
+            f"✅ Q{idx + 1}: Combined with parent Q{dep_idx + 1} "
+            f"({parent_row_count} parent rows used as context)"
+        )
 
         return current_result_df
 
@@ -182,16 +188,90 @@ def _handle_client_init_error(state: GraphState, error_msg: str) -> None:
 def _get_dependency_result(
     state: GraphState, analysis: QueryAnalysis, attempt: int
 ) -> str:
-    """Gets the execution result of a dependent query if available."""
+    """
+    Gets the execution result of a dependent query if available.
+
+    OPTIMIZATION: Intelligently truncates large parent results to prevent token explosion.
+    - For small results (<100 rows): Pass full context
+    - For medium results (100-1000 rows): Pass sample + summary
+    - For large results (>1000 rows): Pass summary only
+    """
     dependency_result = ""
     dep_idx = analysis["depends_on_index"]
 
     if dep_idx >= 0:
         dep_result = state["executed_results"].get(dep_idx)
         if dep_result and dep_result["status"] == QueryStatus.SUCCESS.value:
-            dependency_result = dep_result["results"]
-            if attempt == 0 or state["enable_debug"]:
-                logger.info(f"Using result from Q{dep_idx + 1}")
+
+            try:
+                # Parse parent data to check size
+                parent_data = json.loads(dep_result["results"])
+                parent_row_count = (
+                    len(parent_data) if isinstance(parent_data, list) else 0
+                )
+
+                # INTELLIGENT TRUNCATION based on size
+                if parent_row_count == 0:
+                    dependency_result = json.dumps(
+                        {"message": "Parent query returned no results"}
+                    )
+
+                elif parent_row_count <= 100:
+                    # Small result: pass full context
+                    dependency_result = dep_result["results"]
+                    if attempt == 0 or state["enable_debug"]:
+                        logger.info(
+                            f"Using full result from Q{dep_idx + 1} ({parent_row_count} rows)"
+                        )
+
+                elif parent_row_count <= 1000:
+                    # Medium result: pass sample + summary
+                    sample = parent_data[:50]  # First 50 rows
+                    summary = {
+                        "total_rows": parent_row_count,
+                        "sample_first_50": sample,
+                        "columns": list(parent_data[0].keys()) if parent_data else [],
+                        "note": f"Showing first 50 of {parent_row_count} rows",
+                    }
+                    dependency_result = json.dumps(summary)
+                    if attempt == 0 or state["enable_debug"]:
+                        logger.info(
+                            f"⚡ Using truncated result from Q{dep_idx + 1} "
+                            f"(sample 50/{parent_row_count} rows to save tokens)"
+                        )
+
+                else:
+                    # Large result: pass summary only
+                    if parent_data:
+                        # Extract key info: unique values from first few columns
+                        first_col = list(parent_data[0].keys())[0]
+                        unique_values = list(
+                            set(row[first_col] for row in parent_data[:1000])
+                        )[:100]
+
+                        summary = {
+                            "total_rows": parent_row_count,
+                            "columns": list(parent_data[0].keys()),
+                            "sample_unique_values": {first_col: unique_values},
+                            "note": f"Large result with {parent_row_count} rows - use appropriate filters",
+                        }
+                    else:
+                        summary = {
+                            "total_rows": parent_row_count,
+                            "note": "Large result",
+                        }
+
+                    dependency_result = json.dumps(summary)
+                    logger.warning(
+                        f"⚠️  Large parent result from Q{dep_idx + 1} ({parent_row_count} rows) - "
+                        f"passing summary only to prevent token explosion"
+                    )
+
+            except Exception as e:
+                # Fallback: pass as-is if parsing fails
+                logger.warning(f"Failed to parse parent results for truncation: {e}")
+                dependency_result = dep_result["results"]
+
     return dependency_result
 
 

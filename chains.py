@@ -1,5 +1,5 @@
 """
-LLM chains for query analysis and SQL generation
+LLM chains for query analysis and SQL generation - FINAL COMPREHENSIVE FIX
 """
 
 import json
@@ -83,41 +83,50 @@ You are an expert query analyzer. Analyze the user's question and provide struct
 {catalog_schema}
 --- END CATALOG ---
 
-**DECOMPOSITION RULES (CRITICAL):**
-1. Break into MULTIPLE sub-questions ONLY if parts are:
-   - Logically independent AND
-   - Answerable in isolation WITHOUT referencing the same entity set
+**CRITICAL DECOMPOSITION RULES (READ CAREFULLY):**
 
-2. KEEP AS A SINGLE QUESTION when the request:
-   - Asks for a LIST of entities with multiple attributes
-   - Uses phrases like "include", "show", "with", "along with"
-   - Describes multiple fields of the SAME result set
-   - Can be answered by iterating over ONE filtered collection
+1. **SINGLE QUERY PATTERNS (DO NOT DECOMPOSE):**
+   - Hierarchical/parent-child relationships (e.g., "group tasks by parent", "assign subtasks to main tasks")
+   - Aggregations with grouping (e.g., "sum sales by region")
+   - Sorting/ordering operations (e.g., "sort by date")
+   - Window functions needed (e.g., "top N per category", "running totals", "next/previous row")
+   - Join operations (e.g., "combine data from files")
+   - Single analytical question with multiple display fields
+   
+   **Examples of queries to keep as SINGLE:**
+   - "Find main tasks and their subtasks sorted by ID" → SINGLE QUERY
+   - "Group employees by department and show their salaries" → SINGLE QUERY
+   - "Assign children to parents based on sequence" → SINGLE QUERY
+   - "Top 5 products per region by sales" → SINGLE QUERY
 
-3. DO NOT decompose based on:
-   - Multiple output fields
-   - Explanatory attributes (e.g., relevance, audience, rationale)
-   - Narrative or descriptive additions
-   - Post-processing or enrichment of the same items
+2. **MULTIPLE QUERY PATTERNS (CAN DECOMPOSE):**
+   - Truly independent questions (e.g., "What's average salary? What's average age?")
+   - Sequential analysis where later query needs ACTUAL RESULTS (not just structure) from first
+   - Different analytical perspectives on unrelated metrics
+   
+   **Examples of queries to decompose:**
+   - "Who are the top bidders? How many children do they have?" → 2 QUERIES (different files, sequential)
+   - "What's total revenue? What's total cost? What's profit margin?" → 3 QUERIES (independent metrics)
 
-4. If all parts apply the SAME time filter, domain filter, or entity type,
-   it MUST remain a SINGLE question.
+3. **DEPENDENCY DETECTION (STRICT RULES):**
+   - Set depends_on_index ONLY when query needs SPECIFIC VALUES from previous result
+   - Do NOT create dependency just because queries are related conceptually
+   - Do NOT create dependency for structural/pattern understanding
+   
+   **Dependency Examples:**
+   - Q1: "Find employees with salary > 100k" → Q2: "What are their manager names?" ✅ DEPENDENT (needs specific employee IDs)
+   - Q1: "Find all tasks" → Q2: "Group tasks by type" ❌ NOT DEPENDENT (Q2 can access same data independently)
 
-5. ONLY decompose if:
-   - Different sub-questions require DIFFERENT filters, OR
-   - One sub-question requires the OUTPUT of another to exist first
-
-6. If the task conceptually resembles:
-   - "Find a list of X and include A, B, C"
-   - "Show events/products/people with details"
-   → DO NOT DECOMPOSE.
-
-7. If the request CANNOT be meaningfully answered unless all parts are returned together,
-   it MUST remain a SINGLE question.
+4. **SQL CAPABILITY CHECK:**
+   - Can this be done with window functions (LEAD, LAG, ROW_NUMBER, PARTITION BY)? → SINGLE QUERY
+   - Can this be done with CTEs (WITH clause)? → SINGLE QUERY
+   - Can this be done with GROUP BY + HAVING? → SINGLE QUERY
+   - Can this be done with self-joins? → SINGLE QUERY
 
 **INTENT CLASSIFICATION:**
-- SQL_QUERY: Precise filtering, aggregation, dates, numerical comparisons
-- SUMMARY_SEARCH: Fuzzy logic, conceptual search, RAG, GraphDB (FOR NOW RETURN ONLY SQL_QUERY Dont Return SUMMARY_SEARCH in any case)
+- SQL_QUERY: Precise filtering, aggregation, dates, numerical comparisons, hierarchical grouping
+- SUMMARY_SEARCH: Fuzzy logic, conceptual search, RAG, GraphDB
+(FOR NOW RETURN ONLY SQL_QUERY)
 
 **FILE IDENTIFICATION:**
 1. Use EXACT file names from catalog
@@ -125,13 +134,45 @@ You are an expert query analyzer. Analyze the user's question and provide struct
 3. Never use wildcards - use actual file names
 4. Use ['*'] ONLY if ALL files needed
 
-**DEPENDENCY DETECTION:**
-- Set depends_on_index to dependency index
-- -1 means independent
-- Only set depends_on_index if the query MUST use specific values from a previous result
-- If queries can access the same source data independently, keep them independent (depends_on_index = -1)
-- Don't create dependencies just because queries are related conceptually, 
-- ONLY make a subquery dependent When it needs to make calculations based on output of the query it is dependent on
+**EXAMPLES:**
+
+Example 1 (SINGLE QUERY - Hierarchical):
+User: "If Summary=Yes, treat as main task. Assign following Summary=No rows as subtasks. Sort by ID."
+Analysis: [{{
+  "sub_question": "Group tasks hierarchically by Summary field, assign subtasks to main tasks, and sort by ID",
+  "intent": "SQL_QUERY",
+  "required_files": ["tasks_file"],
+  "depends_on_index": -1
+}}]
+Reasoning: Window functions can handle parent-child assignment. Single query.
+
+Example 2 (MULTIPLE QUERIES - Sequential):
+User: "Who are the highest bidders? How many children do highest bidders have?"
+Analysis: [
+  {{
+    "sub_question": "Who are the highest bidders?",
+    "intent": "SQL_QUERY",
+    "required_files": ["bidders"],
+    "depends_on_index": -1
+  }},
+  {{
+    "sub_question": "How many children do the highest bidders have?",
+    "intent": "SQL_QUERY", 
+    "required_files": ["children"],
+    "depends_on_index": 0
+  }}
+]
+Reasoning: Different files, Q2 needs specific bidder names from Q1 results.
+
+Example 3 (SINGLE QUERY - Aggregation):
+User: "Show total sales by region and top 3 products per region"
+Analysis: [{{
+  "sub_question": "Calculate total sales by region and identify top 3 products per region",
+  "intent": "SQL_QUERY",
+  "required_files": ["sales"],
+  "depends_on_index": -1
+}}]
+Reasoning: Window functions with PARTITION BY can do this. Single query.
 """
 
     try:
@@ -226,10 +267,27 @@ def generate_sql_chain(
     augmentation_hint = ""
     if semantic_context:
         augmentation_hint = f"""
---- SEMANTIC CONTEXT ---
+--- SEMANTIC CONTEXT (REFERENCE DATA) ---
 {semantic_context}
 
-Use exact values from semantic context in WHERE clauses.
+**HOW TO USE SEMANTIC CONTEXT:**
+- This shows SAMPLE/EXAMPLE data from a related query
+- Use it to UNDERSTAND the data structure and relationships
+- DO NOT filter your query to match these specific values
+- DO NOT use WHERE clauses that limit results to context values
+- Think: "This is what the data LOOKS LIKE" not "This is what to FILTER FOR"
+
+**CORRECT vs INCORRECT Usage:**
+
+INCORRECT (Too Restrictive):
+- WHERE id IN (1, 2, 3)  -- Don't limit to context IDs
+- WHERE name = 'John Doe'  -- Don't match specific context values
+- WHERE unique_id = 0  -- Don't hardcode single values from context
+
+CORRECT (Use Pattern):
+- Apply the SAME LOGIC to ALL relevant rows
+- Use context to understand column names, data types, patterns
+- Filter based on CONDITIONS (e.g., summary='Yes') not VALUES (e.g., id=123)
 """
 
     # Build error correction hint for self-healing
@@ -239,6 +297,12 @@ Use exact values from semantic context in WHERE clauses.
 --- PREVIOUS FAILURE (CRITICAL) ---
 The LAST ATTEMPT to generate and execute SQL FAILED with the following error:
 {error_message}
+
+**COMMON ERRORS AND FIXES:**
+1. "Only SELECT queries are allowed" → Use WITH (CTE) for complex queries, not temporary tables
+2. "Column not found" → Check exact column names in schema (quotes, case-sensitivity)
+3. "Cartesian product" → Add proper JOIN conditions with upper/lower bounds
+4. "Binder error" → Add GROUP BY for all non-aggregated columns
 
 You MUST REVISE the SQL QUERY to fix this error. Your new SQL must resolve the issue described above.
 """
@@ -264,7 +328,7 @@ You MUST REVISE the SQL QUERY to fix this error. Your new SQL must resolve the i
 Generate DuckDB SQL query for Parquet files on Azure Blob Storage.
 
 {augmentation_hint}
-{error_correction_hint} # <--- INCLUDED ERROR HINT
+{error_correction_hint}
 {PATH_HINT}
 
 --- SCHEMA ---
@@ -277,21 +341,57 @@ Generate DuckDB SQL query for Parquet files on Azure Blob Storage.
 {user_query}
 
 **CRITICAL INSTRUCTIONS FOR DUCKDB SQL GENERATION:**
+
 1. **URI MANDATE:** Use the EXACT full Azure URI provided in FILE PATH MAPPING with `read_parquet()` (e.g., `read_parquet('azure://...')`). NEVER use placeholders or wildcards.
+
 2. **COLUMN NAMES (CRITICAL):** 
    - Always use EXACT column names from the schema with proper quotes
    - Column names with spaces MUST be quoted: "Full name", "Position Title", "EBS Cost Center"
    - Column names are case-sensitive: "Full name" ≠ "full_name"
    - NEVER use snake_case if schema shows spaces: Use "Full name" NOT "full_name"
    - Check the SCHEMA section for exact column names before writing SQL
-3. **COLUMN ALIASES:** Use `AS` to give clear, user-friendly names to calculated fields (e.g., `SUM(...) AS total_sales`).
-4. **MANDATORY GROUPING:** If the `SELECT` clause contains any aggregate function (like `SUM`, `AVG`, `COUNT`), you **MUST** include a `GROUP BY` clause listing all non-aggregated columns (`region`, `product_category`, etc.). This is required to prevent "Binder Error."
-5. **RANKING/TOP-N:** For "highest X per Y" or "top N" questions, you **MUST** use the `QUALIFY` clause with a Window Function (`ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY sum_col DESC) = 1`) to filter the results.
-6. **LIMIT:** If the User wants HIGEST or LOWEST you will get all result that matches that value for example table as highest value of 10, and 4 rows have 10 value you will get all 4 rows and no more.
-7. **CLAUSE ORDER (CRITICAL):** The sequence of clauses is strictly enforced: `... from .. WHERE ... **GROUP BY** ... **QUALIFY** ...  . The **GROUP BY** clause must immediately precede the **QUALIFY** clause.
-8. **AGGREGATION CHOICE:** When calculating totals (e.g., "annual sales"), use `SUM()`.
-9. **NULL HANDLING:** Include `WHERE column IS NOT NULL` for all columns used in critical calculations (aggregations, filters) to ensure accuracy.
-10. ** TEXT MATCHING (CRITICAL — STRICT ENFORCEMENT):**
+
+3. **HIERARCHICAL/GROUPING QUERIES (CRITICAL):**
+   - For parent-child relationships, use LEAD/LAG window functions
+   - For "assign X to Y based on sequence", use window functions with PARTITION BY
+   - For "group by parent", use self-joins or CTEs with window functions
+   
+   **Example - Assign subtasks to main tasks:**
+   ```sql
+   WITH main_tasks AS (
+     SELECT id, task_name,
+            LEAD(id) OVER (ORDER BY id) as next_main_id
+     FROM read_parquet('...') 
+     WHERE summary = 'Yes'
+   )
+   SELECT m.id as main_task_id, m.task_name as main_task,
+          t.id as subtask_id, t.task_name as subtask_name
+   FROM read_parquet('...') t
+   LEFT JOIN main_tasks m 
+     ON t.id >= m.id 
+     AND (t.id < m.next_main_id OR m.next_main_id IS NULL)
+   WHERE t.summary = 'No'
+   ORDER BY m.id, t.id
+   ```
+
+4. **COLUMN ALIASES:** Use `AS` to give clear, user-friendly names to calculated fields (e.g., `SUM(...) AS total_sales`).
+
+5. **MANDATORY GROUPING:** If the `SELECT` clause contains any aggregate function (like `SUM`, `AVG`, `COUNT`), you **MUST** include a `GROUP BY` clause listing all non-aggregated columns. This is required to prevent "Binder Error."
+
+6. **RANKING/TOP-N:** For "highest X per Y" or "top N" questions, you **MUST** use the `QUALIFY` clause with a Window Function (`ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY sum_col DESC) = 1`) to filter the results.
+
+7. **LIMIT CLAUSE:** 
+   - For "top N" queries, use LIMIT N
+   - For "highest value" queries, get ALL rows matching that value (no LIMIT)
+   - Example: "top 5" → LIMIT 5, but "highest bidder" → no LIMIT (might be multiple tied)
+
+8. **CLAUSE ORDER (CRITICAL):** The sequence of clauses is strictly enforced: `SELECT ... FROM ... WHERE ... GROUP BY ... HAVING ... QUALIFY ... ORDER BY ... LIMIT`. The **GROUP BY** clause must precede **QUALIFY**.
+
+9. **AGGREGATION CHOICE:** When calculating totals (e.g., "annual sales"), use `SUM()`.
+
+10. **NULL HANDLING:** Include `WHERE column IS NOT NULL` for all columns used in critical calculations (aggregations, filters) to ensure accuracy.
+
+11. **TEXT MATCHING (CRITICAL — STRICT ENFORCEMENT):**
    - NEVER use = for text comparison
    - ALWAYS use case-insensitive fuzzy matching
    - ALWAYS use LIKE with wildcards (%)
@@ -302,18 +402,34 @@ Generate DuckDB SQL query for Parquet files on Azure Blob Storage.
      * Search each word with OR
      * ALSO include a full-string fuzzy match
    - Example pattern (MANDATORY):
-
+     ```sql
      WHERE (
        UPPER(REPLACE(col, '.', '')) LIKE '%WORD1%'
        OR UPPER(REPLACE(col, '.', '')) LIKE '%WORD2%'
        OR UPPER(REPLACE(col, '.', '')) LIKE '%WORD1 WORD2%'
      )
+     ```
+
+12. **JOIN BOUNDARIES (CRITICAL FOR HIERARCHICAL QUERIES):**
+   - When assigning items to groups based on sequence/order, ALWAYS define BOTH lower AND upper boundaries
+   - Use LEAD() to get the "next group start" as upper boundary
+   - Example: Assigning subtasks between main tasks
+     ```sql
+     -- WRONG: No upper bound, creates cartesian product
+     WHERE subtask.id > main_task.id
+     
+     -- RIGHT: Both lower and upper bounds
+     WHERE subtask.id > main_task.id 
+       AND (subtask.id < next_main_task.id OR next_main_task.id IS NULL)
+     ```
+
+13. **CTEs ARE ALLOWED:** Common Table Expressions (WITH clause) are safe and encouraged for complex queries.
 
 Return valid JSON:
-{{
+{{{{
     "sql_query": "SELECT ...",
     "explanation": "Brief explanation"
-}}
+}}}}
 """
 
     try:
@@ -389,6 +505,13 @@ def create_tables_from_results(
     tables = []
 
     for idx, result in enumerate(query_results):
+        # Skip intermediate results
+        if result.get("is_intermediate", False):
+            logger.info(
+                f"Skipping intermediate result {idx + 1} (combined into another query)"
+            )
+            continue
+
         if result["status"] != "success":
             continue
 
@@ -466,6 +589,10 @@ def generate_final_summary_chain(
     # STEP 2: Prepare lightweight context for LLM (summary only, not tables)
     results_context = ""
     for idx, result in enumerate(query_results, 1):
+        # Skip intermediate results
+        if result.get("is_intermediate", False):
+            continue
+
         results_context += f"\n--- Result {idx} ---\n"
         results_context += f"Question: {result['sub_question']}\n"
         results_context += f"Status: {result['status']}\n"
@@ -506,8 +633,8 @@ Generate a concise narrative summary (2-4 paragraphs) that:
 1. Directly answers the original question
 2. Highlights key findings and insights
 3. References specific numbers and patterns from the data
-4. Is written for a general users.
-5. Don't write like 'query results show that' or similar, dont mention query, treat QUERY RESULTS SUMMARY as knowledge base and answer for original question.
+4. Is written for general users
+5. Don't write like 'query results show that' or similar, don't mention query, treat QUERY RESULTS SUMMARY as knowledge base and answer for original question
 
 **IMPORTANT:**
 - DO NOT create tables - they are handled separately
@@ -516,9 +643,9 @@ Generate a concise narrative summary (2-4 paragraphs) that:
 - Keep it concise but comprehensive
 
 **OUTPUT FORMAT (JSON):**
-{{
+{{{{
     "summary_text": "Your narrative summary here (2-4 paragraphs)"
-}}
+}}}}
 """
 
     try:
