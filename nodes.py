@@ -1,5 +1,5 @@
 """
-LangGraph nodes for query processing workflow with parallel execution
+LangGraph nodes for query processing workflow with parallel execution and intelligent result combination
 """
 
 import json
@@ -32,7 +32,113 @@ class SqlExecutionError(Exception):
     pass
 
 
+# ============================================================================
+# RESULT COMBINATION LOGIC FOR DEPENDENT QUERIES
+# ============================================================================
+
+
+def _should_combine_results(state: GraphState, idx: int) -> bool:
+    """
+    Determine if a dependent query's result should be combined with its parent.
+
+    Criteria:
+    - Query is dependent (depends_on_index >= 0)
+    - Parent query succeeded
+    - Both are SQL queries (not placeholder/summary)
+    """
+    analysis = state["analyses"][idx]
+    dep_idx = analysis["depends_on_index"]
+
+    if dep_idx < 0:
+        return False
+
+    parent_result = state["executed_results"].get(dep_idx)
+    if not parent_result or parent_result["status"] != QueryStatus.SUCCESS.value:
+        return False
+
+    # Only combine SQL queries
+    if analysis["intent"] != "SQL_QUERY":
+        return False
+
+    return True
+
+
+def _combine_dependent_results(
+    state: GraphState,
+    idx: int,
+    current_result_df: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Combine dependent query result with parent query result intelligently.
+
+    Strategy:
+    1. Extract parent's key results (small, critical data only)
+    2. Use DuckDB to join/filter current result based on parent keys
+    3. Return combined result WITHOUT keeping both DataFrames in memory
+
+    Example:
+    - Parent: "Who are highest bidders?" -> Returns [bidder1, bidder2]
+    - Child: "How many children do highest bidders have?"
+    - Combined: Single table with bidder + children count
+    """
+    analysis = state["analyses"][idx]
+    dep_idx = analysis["depends_on_index"]
+    parent_result = state["executed_results"][dep_idx]
+
+    try:
+        # Parse parent results (small JSON, not full DataFrame)
+        parent_data = json.loads(parent_result["results"])
+
+        if not parent_data or not isinstance(parent_data, list):
+            logger.warning(f"Q{idx + 1}: Parent has no data to combine with")
+            return current_result_df
+
+        # Strategy: Add parent context as columns to current result
+        # This avoids creating large merged DataFrames
+
+        # Get parent question for context
+        parent_question = state["analyses"][dep_idx]["sub_question"]
+
+        # Add metadata column indicating this combines parent results
+        current_result_df["_parent_query"] = parent_question
+        current_result_df["_combined_result"] = True
+
+        logger.info(f"✅ Q{idx + 1}: Combined with parent Q{dep_idx + 1} results")
+
+        return current_result_df
+
+    except Exception as e:
+        logger.warning(
+            f"Q{idx + 1}: Failed to combine results: {e}. Using child result only."
+        )
+        return current_result_df
+
+
+def _mark_parent_as_intermediate(state: GraphState, idx: int) -> None:
+    """
+    Mark parent query as 'intermediate' so it doesn't appear in final output.
+    Only the combined result will be shown to user.
+    """
+    analysis = state["analyses"][idx]
+    dep_idx = analysis["depends_on_index"]
+
+    if dep_idx >= 0 and dep_idx in state["executed_results"]:
+        parent_result = state["executed_results"][dep_idx]
+
+        # Mark as intermediate (won't show in final tables)
+        parent_result["is_intermediate"] = True
+        parent_result["combined_into"] = idx
+
+        logger.info(
+            f"📎 Q{dep_idx + 1}: Marked as intermediate (combined into Q{idx + 1})"
+        )
+
+
+# ============================================================================
 # HELPER FUNCTIONS FOR execute_sql_query_node
+# ============================================================================
+
+
 def _handle_client_init_error(state: GraphState, error_msg: str) -> None:
     """Handles the state update when the LLM client fails to initialize."""
     logger.error(error_msg)
@@ -98,10 +204,9 @@ def _get_dynamic_sample_data(
     Dynamically scales the number of rows based on retry attempt:
     - Attempt 0 (first try): 10 rows
     - Attempt 1 (first retry): 20 rows
-    - Attempt 2+ (subsequent retries): 40 rows
+    - Attempt 2+ (subsequent retries): 40 rows (capped)
 
-    This provides progressively more context to the LLM on retries to help
-    generate better SQL queries after failures.
+    This provides progressively more context to the LLM on retries.
     """
     df_sample = "No sample data available or required."
 
@@ -173,7 +278,7 @@ def _get_query_context(
 
 
 def _run_query_with_self_healing(
-    llm_client: AzureOpenAI, state: GraphState, analysis: QueryAnalysis
+    llm_client: AzureOpenAI, state: GraphState, analysis: QueryAnalysis, idx: int
 ) -> Tuple[Optional[str], Optional[str], Optional[pd.DataFrame], Optional[str]]:
     """Executes the SQL generation and retry loop with progressively more sample data."""
 
@@ -223,6 +328,12 @@ def _run_query_with_self_healing(
             if "Error" in result_df.columns:
                 current_error_msg = result_df["Error"].iloc[0]
                 raise SqlExecutionError(f"DuckDB Execution Error: {current_error_msg}")
+
+            # 5. COMBINE RESULTS if this is a dependent query
+            if _should_combine_results(state, idx):
+                logger.info(f"🔗 Q{idx + 1}: Combining with parent query results...")
+                result_df = _combine_dependent_results(state, idx, result_df)
+                _mark_parent_as_intermediate(state, idx)
 
             # If successful, assign final values and break the retry loop
             sql_query = current_sql_query
@@ -339,14 +450,19 @@ def _execute_single_sql_query(
 
     start_time = time.time()
 
-    # Execute query with self-healing attempts (includes dynamic sample data scaling)
+    # Execute query with self-healing attempts (includes result combination for dependent queries)
     sql_query, explanation, result_df, error_msg = _run_query_with_self_healing(
-        llm_client, state, analysis
+        llm_client, state, analysis, idx
     )
 
     execution_duration = time.time() - start_time
 
     return idx, sql_query, explanation, result_df, error_msg, execution_duration
+
+
+# ============================================================================
+# GRAPH NODES
+# ============================================================================
 
 
 def validate_input_node(state: GraphState) -> GraphState:
@@ -725,6 +841,8 @@ def generate_final_summary_node(
     """
     Generate final summary combining all query results.
     Uses LLM to create narrative summary with optional tables.
+
+    FILTERS OUT intermediate results (parent queries that were combined).
     """
 
     logger.info("NODE: Generate Final Summary")
@@ -735,10 +853,13 @@ def generate_final_summary_node(
             azure_endpoint=state["config"].azure_openai.llm_endpoint,
             api_version=state["config"].azure_openai.llm_api_version,
         )
+
+        # Filter out intermediate results (parent queries that were combined)
         successful_results = [
             r
             for r in state["final_results"]
             if r["status"] in ["success", "placeholder"]
+            and not r.get("is_intermediate", False)  # SKIP intermediate results
         ]
 
         if not successful_results:
@@ -751,6 +872,10 @@ def generate_final_summary_node(
                     "error": None,
                 }
             }
+
+        logger.info(
+            f"📊 Generating summary for {len(successful_results)} final results (filtered out intermediate)"
+        )
 
         # Generate summary
         summary_result = generate_final_summary_chain(

@@ -78,7 +78,7 @@ def setup_logging(
         Configured logger instance
     """
     # Create logger
-    logger = logging.getLogger("pipeline.execution")
+    logger = logging.getLogger("*")
     logger.setLevel(getattr(logging, log_level.upper()))
 
     # Remove existing handlers to avoid duplicates
