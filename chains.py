@@ -87,7 +87,7 @@ You are an expert query analyzer. Analyze the user's question and provide struct
 1. Break into MULTIPLE sub-questions ONLY if atomically independent OR dependent
 2. Keep as SINGLE question if parts share same filter/aggregation
 3. If handled by single SQL query, do NOT decompose
-4. Make Minimum number of sub-questions that can be handled by single SQL query either by join or by cte or simple query.
+4. ONLY decompose sub-questions that can be handled by single SQL query either by join or by cte or simple query.
 
 **INTENT CLASSIFICATION:**
 - SQL_QUERY: Precise filtering, aggregation, dates, numerical comparisons
@@ -105,16 +105,13 @@ You are an expert query analyzer. Analyze the user's question and provide struct
 - -1 means independent
 - Only set depends_on_index if the query MUST use specific values from a previous result
 - If queries can access the same source data independently, keep them independent (depends_on_index = -1)
-- Don't create dependencies just because queries are related conceptually
+- Don't create dependencies just because queries are related conceptually, 
+- ONLY make a subquery dependent When it needs to make calculations based on output of the query it is dependent on
 """
 
     try:
 
-        @retry_with_exponential_backoff(
-            max_attempts=3,
-            initial_wait=2.0,
-            exceptions=(RateLimitError, APIError, Timeout),
-        )
+        @retry_with_exponential_backoff(max_attempts=3)
         def make_llm_call():
             return llm_client.chat.completions.create(
                 model=deployment_name,
@@ -265,10 +262,11 @@ Generate DuckDB SQL query for Parquet files on Azure Blob Storage.
 3. **COLUMN ALIASES:** Use `AS` to give clear, user-friendly names to calculated fields (e.g., `SUM(...) AS total_sales`).
 4. **MANDATORY GROUPING:** If the `SELECT` clause contains any aggregate function (like `SUM`, `AVG`, `COUNT`), you **MUST** include a `GROUP BY` clause listing all non-aggregated columns (`region`, `product_category`, etc.). This is required to prevent "Binder Error."
 5. **RANKING/TOP-N:** For "highest X per Y" or "top N" questions, you **MUST** use the `QUALIFY` clause with a Window Function (`ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY sum_col DESC) = 1`) to filter the results.
-6. **CLAUSE ORDER (CRITICAL):** The sequence of clauses is strictly enforced: `... from .. WHERE ... **GROUP BY** ... **QUALIFY** ...  . The **GROUP BY** clause must immediately precede the **QUALIFY** clause.
-7. **AGGREGATION CHOICE:** When calculating totals (e.g., "annual sales"), use `SUM()`.
-8. **NULL HANDLING:** Include `WHERE column IS NOT NULL` for all columns used in critical calculations (aggregations, filters) to ensure accuracy.
-9. ** TEXT MATCHING (CRITICAL — STRICT ENFORCEMENT):**
+6. **LIMIT:** If the User wants HIGEST or LOWEST you will get all result that matches that value for example table as highest value of 10, and 4 rows have 10 value you will get all 4 rows and no more.
+7. **CLAUSE ORDER (CRITICAL):** The sequence of clauses is strictly enforced: `... from .. WHERE ... **GROUP BY** ... **QUALIFY** ...  . The **GROUP BY** clause must immediately precede the **QUALIFY** clause.
+8. **AGGREGATION CHOICE:** When calculating totals (e.g., "annual sales"), use `SUM()`.
+9. **NULL HANDLING:** Include `WHERE column IS NOT NULL` for all columns used in critical calculations (aggregations, filters) to ensure accuracy.
+10. ** TEXT MATCHING (CRITICAL — STRICT ENFORCEMENT):**
    - NEVER use = for text comparison
    - ALWAYS use case-insensitive fuzzy matching
    - ALWAYS use LIKE with wildcards (%)
@@ -295,11 +293,7 @@ Return valid JSON:
 
     try:
 
-        @retry_with_exponential_backoff(
-            max_attempts=3,
-            initial_wait=2.0,
-            exceptions=(RateLimitError, APIError, Timeout),
-        )
+        @retry_with_exponential_backoff(max_attempts=3)
         def make_llm_call():
             return llm_client.chat.completions.create(
                 model=deployment_name,
@@ -487,7 +481,8 @@ Generate a concise narrative summary (2-4 paragraphs) that:
 1. Directly answers the original question
 2. Highlights key findings and insights
 3. References specific numbers and patterns from the data
-4. Is written for a business audience (not developers)
+4. Is written for a general users.
+5. Don't write like 'query results show that' or similar, dont mention query, treat QUERY RESULTS SUMMARY as knowledge base and answer for original question.
 
 **IMPORTANT:**
 - DO NOT create tables - they are handled separately
@@ -503,11 +498,7 @@ Generate a concise narrative summary (2-4 paragraphs) that:
 
     try:
 
-        @retry_with_exponential_backoff(
-            max_attempts=3,
-            initial_wait=2.0,
-            exceptions=(RateLimitError, APIError, Timeout),
-        )
+        @retry_with_exponential_backoff(max_attempts=3)
         def make_llm_call():
             return llm_client.chat.completions.create(
                 model=deployment_name,

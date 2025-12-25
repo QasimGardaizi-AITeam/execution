@@ -160,7 +160,7 @@ def main():
     config = get_config()
 
     # Load catalog
-    CATALOG_FILE = "./inputs/Hltachi.json"
+    CATALOG_FILE = "./inputs/narcan.json"
     try:
         with open(CATALOG_FILE, "r") as f:
             catalog_data = json.load(f)
@@ -182,7 +182,9 @@ def main():
 
     # Test queries
 
-    test_queries = ["""Can you provide a list of users with the lowest usage?"""]
+    test_queries = [
+        """Find a list of upcoming(Post June) pharmaceutical or biotech conferences in 2025. Include the event name, date , location overall theme or focus, target audience, and why it might be relevant for a company like Emergent BioSolutions"""
+    ]
     for query in test_queries:
         logger.info(f"PROCESSING: {query}")
 
