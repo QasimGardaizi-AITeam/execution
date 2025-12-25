@@ -138,7 +138,7 @@ def main():
     config = get_config()
 
     # Load catalog
-    CATALOG_FILE = "./inputs/asad.json"
+    CATALOG_FILE = "./inputs/uv4b.json"
     try:
         with open(CATALOG_FILE, "r") as f:
             catalog_data = json.load(f)
@@ -161,9 +161,9 @@ def main():
     # Test queries
 
     test_queries = [
-        # "Categorize the questions based on products and response methods (e.g., verbal, email). Provide examples and keep information specific. Identify which products are receiving the most inquiries and categorise the types of questions being asked about each product. Provide a breakdown of the frequency and nature of the questions for each product. Please mention which file you are picking the response from at the start of the response.",
-        "Using Region, Product Category, Q1 Sales, Q2 Sales, Q3 Sales, and Q4 Sales, find the product category in each region that has the highest total annual sales.",
-        # "For each region, which product category has the highest yearly sales (Q1+Q2+Q3+Q4)?",
+        """For each task, show the Task Name, Actual Start, Actual Finish, Baseline Start, and Baseline Finish.
+List tasks where Baseline Finish is earlier than Actual Finish.
+Identify tasks where Actual Finish is equal to Baseline Finish."""
     ]
     for query in test_queries:
         logger.info(f"PROCESSING: {query}")

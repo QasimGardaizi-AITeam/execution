@@ -7,6 +7,7 @@ from functools import wraps
 from typing import Any, Callable, Optional, Tuple, Type
 
 from logging_config import get_logger
+from openai import APIError, RateLimitError, Timeout
 
 logger = get_logger()
 
@@ -16,7 +17,12 @@ def retry_with_exponential_backoff(
     initial_wait: float = 1.0,
     max_wait: float = 10.0,
     exponential_base: float = 2.0,
-    exceptions: Tuple[Type[Exception], ...] = (Exception,),
+    exceptions: Tuple[Type[BaseException], ...] = (
+        RateLimitError,
+        APIError,
+        Timeout,
+        Exception,
+    ),
 ):
     """
     Decorator to retry a function with exponential backoff.

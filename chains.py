@@ -87,10 +87,12 @@ You are an expert query analyzer. Analyze the user's question and provide struct
 1. Break into MULTIPLE sub-questions ONLY if atomically independent OR dependent
 2. Keep as SINGLE question if parts share same filter/aggregation
 3. If handled by single SQL query, do NOT decompose
+4. Make Minimum number of sub-questions that can be handled by single SQL query either by join or by cte or simple query.
 
 **INTENT CLASSIFICATION:**
 - SQL_QUERY: Precise filtering, aggregation, dates, numerical comparisons
 - SUMMARY_SEARCH: Fuzzy logic, conceptual search, RAG, GraphDB
+(FOR NOW RETURN ONLY SQL_QUERY)
 
 **FILE IDENTIFICATION:**
 1. Use EXACT file names from catalog
@@ -101,6 +103,9 @@ You are an expert query analyzer. Analyze the user's question and provide struct
 **DEPENDENCY DETECTION:**
 - Set depends_on_index to dependency index
 - -1 means independent
+- Only set depends_on_index if the query MUST use specific values from a previous result
+- If queries can access the same source data independently, keep them independent (depends_on_index = -1)
+- Don't create dependencies just because queries are related conceptually
 """
 
     try:
@@ -176,7 +181,8 @@ def generate_sql_chain(
     df_sample: str,
     path_map: Dict[str, str],
     semantic_context: str = "",
-    error_message: Optional[str] = None,  # TYPE FIX: Added Optional
+    error_message: Optional[str] = None,
+    metrics_collector: Optional[Any] = None,
 ) -> Tuple[str, str]:
     """
     Generate SQL query using LLM.
@@ -257,6 +263,7 @@ Generate DuckDB SQL query for Parquet files on Azure Blob Storage.
 6. **AGGREGATION CHOICE:** When calculating totals (e.g., "annual sales"), use `SUM()`.
 7. **NULL HANDLING:** Include `WHERE column IS NOT NULL` for all columns used in critical calculations (aggregations, filters) to ensure accuracy.
 8. **JSON FORMAT:** Your final output MUST be a valid JSON object.
+9. **FILTERS:** Create Filters By Carefully Reviewing the Data Schema and Sample Data.
 
 Return valid JSON:
 {{
@@ -303,6 +310,15 @@ Return valid JSON:
                 response.usage.total_tokens,
                 timing["duration"],
             )
+            if metrics_collector:
+                metrics_collector.record_llm_call(
+                    model=deployment_name,
+                    operation="sql_generation",
+                    prompt_tokens=response.usage.prompt_tokens,
+                    completion_tokens=response.usage.completion_tokens,
+                    total_tokens=response.usage.total_tokens,
+                    duration=timing["duration"],
+                )
 
         logger.debug(f"Generated SQL query: {sql_query[:100]}...")
         return sql_query, explanation
@@ -351,6 +367,7 @@ def generate_final_summary_chain(
         results_context += "\n"
 
     summary_prompt = f"""
+
 You are an expert data analyst. Generate a comprehensive summary of query results.
 
 **ORIGINAL QUESTION:**
@@ -366,6 +383,8 @@ You are an expert data analyst. Generate a comprehensive summary of query result
    - Use text only for: conceptual explanations, qualitative insights, recommendations
 3. Create a narrative summary with key findings
 4. If tables are appropriate, format them clearly with headers and data
+5. For Text User Proper Styling Like bullets or list if necessary
+6. Only Answer for the asked original answer dont add unnecessary information 
 
 **OUTPUT FORMAT (JSON):**
 {{
@@ -388,8 +407,8 @@ You are an expert data analyst. Generate a comprehensive summary of query result
 - Be specific with numbers, percentages, and data points
 - Highlight key trends and patterns
 - Compare across different dimensions when relevant
-- Keep summary concise but comprehensive (500-1500 words)
-- Tables should have clear headers and meaningful data
+- Keep summary concise but comprehensive Add All Necessary Information That is Demanded in the Question
+- Tables should have clear headers and meaningful data and should contain all relevant data to the question
 - If no table needed, return empty tables array
 """
 

@@ -1,9 +1,10 @@
 """
-LangGraph nodes for query processing workflow
+LangGraph nodes for query processing workflow with parallel execution
 """
 
 import json
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, Optional, Tuple
 
 import pandas as pd
@@ -183,7 +184,11 @@ def _run_query_with_self_healing(
                 path_map=path_map,
                 semantic_context=dependency_result,
                 error_message=previous_error_msg,
+                metrics_collector=state.get("metrics_collector"),
             )
+
+            # REMOVED: Incorrect metrics logging here
+            # The generate_sql_chain already logs metrics internally
 
             logger.info(f"Generated SQL: {current_sql_query[:100]}...")
             logger.debug(f"Explanation: {current_explanation}")
@@ -191,7 +196,7 @@ def _run_query_with_self_healing(
             # 3. Execute query
             result_df = execute_duckdb_query(current_sql_query, state["config"])
 
-            # 4. Check for execution errors (DuckDB returns a DataFrame with an 'Error' column)
+            # 4. Check for execution errors
             if "Error" in result_df.columns:
                 current_error_msg = result_df["Error"].iloc[0]
                 raise SqlExecutionError(f"DuckDB Execution Error: {current_error_msg}")
@@ -287,6 +292,32 @@ def _log_and_record_result(
             row_count=row_count,
             error=error_msg,
         )
+
+
+def _execute_single_sql_query(
+    idx: int, state: GraphState, llm_client: AzureOpenAI
+) -> Tuple[
+    int, Optional[str], Optional[str], Optional[pd.DataFrame], Optional[str], float
+]:
+    """
+    Execute a single SQL query (for use in parallel execution).
+
+    Returns:
+        Tuple of (idx, sql_query, explanation, result_df, error_msg, execution_duration)
+    """
+    analysis = state["analyses"][idx]
+    logger.info(f"--- Processing Q{idx + 1}: {analysis['sub_question']} ---")
+
+    start_time = time.time()
+
+    # Execute query with self-healing attempts
+    sql_query, explanation, result_df, error_msg = _run_query_with_self_healing(
+        llm_client, state, analysis
+    )
+
+    execution_duration = time.time() - start_time
+
+    return idx, sql_query, explanation, result_df, error_msg, execution_duration
 
 
 def validate_input_node(state: GraphState) -> GraphState:
@@ -464,14 +495,31 @@ def identify_ready_queries_node(state: GraphState) -> GraphState:
 
 def execute_sql_query_node(state: GraphState) -> GraphState:
     """
-    Execute SQL queries in current batch with LLM-based self-healing fallback.
+    Execute SQL queries in current batch IN PARALLEL with adaptive rate limiting.
+
+    Splits queries into smaller batches with delays to avoid Azure rate limits.
     """
 
-    logger.info(f"NODE: Execute SQL Queries (Batch: {len(state['current_batch'])})")
+    logger.info(
+        f"NODE: Execute SQL Queries (Batch: {len(state['current_batch'])}) - PARALLEL EXECUTION WITH ADAPTIVE RATE LIMITING"
+    )
 
-    # Track which indices we process
-    processed_indices = []
+    # Filter to only SQL queries in the batch
+    sql_query_indices = [
+        idx
+        for idx in state["current_batch"]
+        if state["analyses"][idx]["intent"] == "SQL_QUERY"
+    ]
 
+    if not sql_query_indices:
+        logger.info("No SQL queries in current batch")
+        return state
+
+    logger.info(
+        f"Executing {len(sql_query_indices)} SQL queries with adaptive rate limiting"
+    )
+
+    # Initialize LLM client once for all queries
     try:
         llm_client = AzureOpenAI(
             api_key=state["config"].azure_openai.llm_api_key,
@@ -483,48 +531,103 @@ def execute_sql_query_node(state: GraphState) -> GraphState:
         _handle_client_init_error(state, error_msg)
         return state
 
-    for idx in state["current_batch"]:
-        analysis = state["analyses"][idx]
+    # ADAPTIVE RATE LIMITING: Split into batches
+    batch_size = 5  # Queries per batch
+    batch_delay = 10  # Seconds between batches
 
-        # Skip non-SQL queries
-        if analysis["intent"] != "SQL_QUERY":
-            continue
+    # Split queries into batches
+    batches = [
+        sql_query_indices[i : i + batch_size]
+        for i in range(0, len(sql_query_indices), batch_size)
+    ]
 
-        processed_indices.append(idx)
-        logger.info(f"--- Processing Q{idx + 1}: {analysis['sub_question']} ---")
+    logger.info(f"Split into {len(batches)} batches of max {batch_size} queries each")
 
-        start_time = time.time()
+    # Process each batch with delay
+    for batch_num, batch in enumerate(batches):
+        # Add delay between batches (except first one)
+        if batch_num > 0:
+            logger.info(
+                f"Waiting {batch_delay}s before starting batch {batch_num + 1}..."
+            )
+            time.sleep(batch_delay)
 
-        # Execute query with self-healing attempts
-        sql_query, explanation, result_df, error_msg = _run_query_with_self_healing(
-            llm_client, state, analysis
+        logger.info(
+            f"Processing batch {batch_num + 1}/{len(batches)} ({len(batch)} queries)"
         )
 
-        execution_duration = time.time() - start_time
+        # Execute current batch in parallel
+        max_workers = min(len(batch), 5)
 
-        # Log and record the final result (success or error)
-        _log_and_record_result(
-            state,
-            idx,
-            analysis,
-            sql_query,
-            explanation,
-            result_df,
-            error_msg,
-            execution_duration,
-        )
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all queries in current batch
+            future_to_idx = {
+                executor.submit(_execute_single_sql_query, idx, state, llm_client): idx
+                for idx in batch
+            }
 
-    # Remove processed indices from remaining
-    for idx in processed_indices:
-        if idx in state["remaining_indices"]:
-            state["remaining_indices"].remove(idx)
+            # Collect results as they complete
+            for future in as_completed(future_to_idx):
+                idx = future_to_idx[future]
+                try:
+                    # Get the result
+                    (
+                        idx,
+                        sql_query,
+                        explanation,
+                        result_df,
+                        error_msg,
+                        execution_duration,
+                    ) = future.result()
 
+                    analysis = state["analyses"][idx]
+
+                    # Log and record the result
+                    _log_and_record_result(
+                        state,
+                        idx,
+                        analysis,
+                        sql_query,
+                        explanation,
+                        result_df,
+                        error_msg,
+                        execution_duration,
+                    )
+
+                    # Remove from remaining indices
+                    if idx in state["remaining_indices"]:
+                        state["remaining_indices"].remove(idx)
+
+                except Exception as e:
+                    # Handle unexpected errors in parallel execution
+                    error_msg = f"Unexpected error in parallel execution: {str(e)}"
+                    logger.error(error_msg, exc_info=True)
+
+                    analysis = state["analyses"][idx]
+                    state["executed_results"][idx] = QueryResult(
+                        sub_question=analysis["sub_question"],
+                        intent=analysis["intent"],
+                        status=QueryStatus.ERROR.value,
+                        sql_query=None,
+                        sql_explanation=None,
+                        results=json.dumps({"Error": error_msg}),
+                        execution_duration=0.0,
+                        error=error_msg,
+                    )
+
+                    if idx in state["remaining_indices"]:
+                        state["remaining_indices"].remove(idx)
+
+    logger.info(
+        f"Completed adaptive rate-limited execution of {len(sql_query_indices)} SQL queries"
+    )
     return state
 
 
 def execute_summary_search_node(state: GraphState) -> GraphState:
     """
     Execute summary search queries in current batch (placeholder).
+    These can also be parallelized if needed in the future.
     """
 
     logger.info(
@@ -611,7 +714,6 @@ def generate_final_summary_node(
 
         if not successful_results:
             logger.info("[SKIP] No successful results to summarize")
-            # --- CHANGE 1: Return explicit update for no results ---
             return {
                 "final_summary": {
                     "summary_text": "No results were successfully generated to summarize.",
@@ -637,7 +739,6 @@ def generate_final_summary_node(
             logger.debug("\n--- Summary Preview ---")
             logger.debug(summary_result["summary_text"][:500] + "...")
 
-        # --- CHANGE 2: Return explicit update on success ---
         return {
             "final_summary": summary_result,
         }
@@ -651,7 +752,6 @@ def generate_final_summary_node(
 
         logger.error(f"[ERROR] Traceback: {traceback.format_exc()}")
 
-        # --- CHANGE 3: Return explicit update on error ---
         return {
             "final_summary": {
                 "summary_text": f"Error generating summary: {error_msg}",
